@@ -1,0 +1,69 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.33.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 909b01f499bcb439c51c37513f0a629170419f1456b89ff76b9f170ac0a029eb
+
+name:           gamemaker-risk-of-rain
+version:        0.1.0.0
+synopsis:       Risk of Rain 1 GameMaker data file unpacking
+description:    Please see the README on GitHub at <https://github.com/burningwitness/gamemaker-risk-of-rain#readme>
+category:       Decompiler
+homepage:       https://github.com/burningwitness/gamemaker-risk-of-rain#readme
+bug-reports:    https://github.com/burningwitness/gamemaker-risk-of-rain/issues
+author:         Oleksii Divak
+maintainer:     Oleksii Divak <frozenwitness@gmail.com>
+copyright:      (c) 2021, Oleksii Divak
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+
+source-repository head
+  type: git
+  location: https://github.com/burningwitness/gamemaker-risk-of-rain
+
+library
+  exposed-modules:
+      Data.Key
+      GameMaker.RiskOfRain.Decompilation
+      GameMaker.RiskOfRain.Decompilation.Raw
+      GameMaker.RiskOfRain.Lens
+      GameMaker.RiskOfRain.Unpacking
+      GameMaker.RiskOfRain.Unpacking.Unpack
+  other-modules:
+      Paths_gamemaker_risk_of_rain
+  hs-source-dirs:
+      src
+  default-extensions: NoImplicitPrelude
+  ghc-options: -Wall
+  build-depends:
+      base >=4.7 && <5
+    , binary
+    , bytestring
+    , containers
+    , lens
+    , time
+  default-language: Haskell2010
+
+test-suite coherence
+  type: exitcode-stdio-1.0
+  main-is: Coherence.hs
+  other-modules:
+      Paths_gamemaker_risk_of_rain
+  hs-source-dirs:
+      test
+  default-extensions: NoImplicitPrelude
+  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N -O2
+  build-depends:
+      base >=4.7 && <5
+    , binary
+    , bytestring
+    , containers
+    , gamemaker-risk-of-rain
+    , lens
+    , time
+  default-language: Haskell2010

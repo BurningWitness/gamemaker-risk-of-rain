@@ -1,0 +1,15 @@
+language: haskell
+cabal: "3.2"
+
+ghc:
+- "8.8.4"
+
+before_install: travis_retry cabal new-update
+
+install: cabal new-install --lib --only-dependencies
+
+script: cabal new-build
+
+cache:
+  directories:
+  - $HOME/.cabal

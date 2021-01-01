@@ -1,0 +1,45 @@
+name:                gamemaker-risk-of-rain
+version:             0.1.0.0
+github:              burningwitness/gamemaker-risk-of-rain
+license:             BSD3
+license-file:        LICENSE
+author:              Oleksii Divak
+maintainer:          Oleksii Divak <frozenwitness@gmail.com>
+copyright:           (c) 2021, Oleksii Divak
+
+extra-source-files:
+- README.md
+
+synopsis:            Risk of Rain 1 GameMaker data file unpacking
+category:            Decompiler
+
+description:         Please see the README on GitHub at <https://github.com/burningwitness/gamemaker-risk-of-rain#readme>
+
+dependencies:
+- base >= 4.12 && < 5
+- binary
+- bytestring
+- containers
+- lens
+- time
+
+ghc-options:
+- -Wall
+
+library:
+  source-dirs: src
+
+default-extensions:
+- NoImplicitPrelude
+
+tests:
+  coherence:
+    main:        Coherence.hs
+    source-dirs: test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -O2
+    dependencies:
+    - gamemaker-risk-of-rain
