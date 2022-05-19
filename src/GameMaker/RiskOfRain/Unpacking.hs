@@ -13,12 +13,20 @@
     Well and also some names don't match because there is zero point synching between the two.
  -}
 
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveAnyClass
+           , DeriveGeneric
+           , FlexibleInstances
+           , OverloadedStrings #-}
 
-module GameMaker.RiskOfRain.Unpacking where
+module GameMaker.RiskOfRain.Unpacking
+  ( InfoFlag (..)
+  , CRC32 (..)
+  , MD5 (..)
+  , RGBA (..)
+  , RoomEntryFlag (..)
+  , SoundEntryFlag (..)
+  , module GameMaker.RiskOfRain.Unpacking
+  ) where
 
 import           GameMaker.RiskOfRain.Unpacking.Unpack
 
@@ -101,8 +109,8 @@ instance Unpack Form where
 data Gen8 =
        Gen8
          { gen8Unknown1       :: Word32
-         , gen8Name           :: (Pointer BS.ByteString)
-         , gen8Filename       :: (Pointer BS.ByteString)
+         , gen8Name           :: Pointer BS.ByteString
+         , gen8Filename       :: Pointer BS.ByteString
          , gen8Unknown2       :: Word32
          , gen8Unknown3       :: Word32
          , gen8Unknown4       :: Word32
@@ -110,7 +118,7 @@ data Gen8 =
          , gen8Unknown6       :: Word32
          , gen8Unknown7       :: Word32
          , gen8Unknown8       :: Word32
-         , gen8NameUnderscore :: (Pointer BS.ByteString)
+         , gen8NameUnderscore :: Pointer BS.ByteString
          , gen8Major          :: Word32
          , gen8Minor          :: Word32
          , gen8Release        :: Word32
@@ -122,7 +130,7 @@ data Gen8 =
          , gen8LicenseCRC32   :: CRC32
          , gen8Timestamp      :: UTCTime
          , gen8Unknown9       :: Word32
-         , gen8DisplayName    :: (Pointer BS.ByteString)
+         , gen8DisplayName    :: Pointer BS.ByteString
          , gen8Unknown10      :: Word32
          , gen8Unknown11      :: Word32
          , gen8Unknown12      :: Word32
@@ -188,8 +196,8 @@ instance Unpack Optn where
 --   is just ones and twos scattered around.
 data Extn =
        Extn
-         { extnUnknown1 :: (Dictionary ExtnTriplet)
-         , extnUnknown2 :: (Dictionary ExtnSegment)
+         { extnUnknown1 :: Dictionary ExtnTriplet
+         , extnUnknown2 :: Dictionary ExtnSegment
          , extnUnknown3 :: BSL.ByteString
          }
        deriving (Show, Eq)
@@ -204,9 +212,9 @@ instance Unpack Extn where
 
 data ExtnTriplet =
        ExtnTriplet
-         { extnTripletUnknown1 :: (Pointer BS.ByteString)
-         , extnTripletUnknown2 :: (Pointer BS.ByteString)
-         , extnTripletUnknown3 :: (Pointer BS.ByteString)
+         { extnTripletUnknown1 :: Pointer BS.ByteString
+         , extnTripletUnknown2 :: Pointer BS.ByteString
+         , extnTripletUnknown3 :: Pointer BS.ByteString
          }
        deriving (Show, Eq, Generic, Unpack)
 
@@ -214,17 +222,17 @@ data ExtnSegment =
        ExtnSegment
          { extnSegmentName       :: ExtnTriplet
          , extnSegmentUnknown1   :: Word32
-         , extnSegmentOperations :: (Dictionary ExtnOperation)
+         , extnSegmentOperations :: Dictionary ExtnOperation
          }
        deriving (Show, Eq, Generic, Unpack)
 
 data ExtnOperation =
        ExtnOperation
-         { extnOperationOperationFs :: (Pointer BS.ByteString)
+         { extnOperationOperationFs :: Pointer BS.ByteString
          , extnOperationOperationId :: Word32
          , extnOperationUnknown1    :: Word32
          , extnOperationUnknown2    :: Word32
-         , extnOperationOperation   :: (Pointer BS.ByteString)
+         , extnOperationOperation   :: Pointer BS.ByteString
          , extnOperationUnknown3    :: [Word32]
          }
        deriving (Show, Eq)
@@ -254,10 +262,10 @@ instance Unpack Sond where
 
 data SondElement =
        SondElement
-         { sondElementName       :: (Pointer BS.ByteString)
+         { sondElementName       :: Pointer BS.ByteString
          , sondElementFlags      :: SoundEntryFlags
-         , sondElementExtension  :: (Pointer BS.ByteString) -- Always ".ogg"
-         , sondElementFileName   :: (Pointer BS.ByteString)
+         , sondElementExtension  :: Pointer BS.ByteString -- Always ".ogg"
+         , sondElementFileName   :: Pointer BS.ByteString
          , sondElementUnknown1   :: Word32                  -- Always zero
          , sondElementVolume     :: Float
          , sondElementPitch      :: Float
@@ -292,7 +300,7 @@ instance Unpack Sprt where
 
 data SprtElement =
        SprtElement
-         { sprtElementName         :: (Pointer BS.ByteString)
+         { sprtElementName         :: Pointer BS.ByteString
          , sprtElementWidth        :: Int32
          , sprtElementHeight       :: Int32
          , sprtElementMarginLeft   :: Int32
@@ -347,11 +355,11 @@ instance Unpack Bgnd where
 
 data BgndElement =
        BgndElement
-         { bgndElementName     :: (Pointer BS.ByteString)
+         { bgndElementName     :: Pointer BS.ByteString
          , bgndElementUnknown1 :: Word32                  -- Always zero
          , bgndElementUnknown2 :: Word32                  -- Always zero
          , bgndElementUnknown3 :: Word32                  -- Always zero
-         , bgndElementTexture  :: (Pointer TpagElement)
+         , bgndElementTexture  :: Pointer TpagElement
          }
        deriving (Show, Eq, Generic, Unpack)
 
@@ -384,7 +392,7 @@ instance Unpack Scpt where
 
 data ScptBinding =
        ScptBinding
-         { scptBindingPointer    :: (Pointer BS.ByteString)
+         { scptBindingPointer    :: Pointer BS.ByteString
          , scptBindingIdentifier :: Word32
          }
        deriving (Show, Eq, Generic, Unpack)
@@ -418,8 +426,8 @@ instance Unpack Font where
 
 data FontElement =
        FontElement
-         { fontElementType_        :: (Pointer BS.ByteString)
-         , fontElementName         :: (Pointer BS.ByteString)
+         { fontElementType_        :: Pointer BS.ByteString
+         , fontElementName         :: Pointer BS.ByteString
          , fontElementEmSize       :: Word32
          , fontElementBold         :: Bool
          , fontElementItalic       :: Bool
@@ -427,10 +435,10 @@ data FontElement =
          , fontElementCharset      :: Word8
          , fontElementAntialiasing :: Word8
          , fontElementRangeEnd     :: Word32
-         , fontElementTexture      :: (Pointer TpagElement)
+         , fontElementTexture      :: Pointer TpagElement
          , fontElementScaleX       :: Float
          , fontElementScaleY       :: Float
-         , fontElementCharacters   :: (Dictionary FontBit)
+         , fontElementCharacters   :: Dictionary FontBit
          }
        deriving (Show, Eq, Generic, Unpack)
 
@@ -477,7 +485,7 @@ instance Unpack Objt where
 -- | The only thing from here we know for sure are name and sprite index
 data ObjtElement =
        ObjtElement
-         { objtElementName            :: (Pointer BS.ByteString)
+         { objtElementName            :: Pointer BS.ByteString
          , objtElementSpriteIndex     :: Int32
          , objtElementVisible         :: Bool
          , objtElementSolid           :: Bool
@@ -498,7 +506,7 @@ data ObjtElement =
          , objtElementUnknown10       :: Int32
          , objtElementUnknown11       :: Int32
          , objtElementShapePoints     :: [(Float, Float)]
-         , objtElementUnknown12       :: (Dictionary ObjtSub) -- Always holds 12 elements
+         , objtElementUnknown12       :: Dictionary ObjtSub -- Always holds 12 elements
          }
        deriving (Show, Eq)
 
@@ -583,13 +591,13 @@ instance Unpack Room where
 
 data RoomElement =
        RoomElement
-         { roomElementName           :: (Pointer BS.ByteString)
-         , roomElementCaption        :: (Pointer BS.ByteString)
+         { roomElementName           :: Pointer BS.ByteString
+         , roomElementCaption        :: Pointer BS.ByteString
          , roomElementWidth          :: Word32
          , roomElementHeight         :: Word32
          , roomElementSpeed          :: Word32
          , roomElementPersistent     :: Bool
-         , roomElementArgb           :: Argb
+         , roomElementRgba           :: RGBA
          , roomElementDrawBGColor    :: Bool
          , roomElementUnknown1       :: Word32
          , roomElementFlags          :: RoomEntryFlags
@@ -605,10 +613,10 @@ data RoomElement =
          , roomElementGravityX       :: Float
          , roomElementGravityY       :: Float
          , roomElementMetersPerPixel :: Float
-         , roomElementBackgrounds    :: (Dictionary RoomBackground)
-         , roomElementViews          :: (Dictionary RoomView)
-         , roomElementObjects        :: (Dictionary RoomObject)
-         , roomElementTiles          :: (Dictionary RoomTile)
+         , roomElementBackgrounds    :: Dictionary RoomBackground
+         , roomElementViews          :: Dictionary RoomView
+         , roomElementObjects        :: Dictionary RoomObject
+         , roomElementTiles          :: Dictionary RoomTile
          }
        deriving (Show, Eq, Generic, Unpack)
 
@@ -803,7 +811,7 @@ instance Unpack (Maybe Vari) where
 -- | Every address points to the next address and it repeats @occurences@ times.
 data VariElement =
        VariElement
-         { variElementName       :: (Pointer BS.ByteString)
+         { variElementName       :: Pointer BS.ByteString
          , variElementUnknown1   :: Int32
          , variElementUnknown2   :: Int32
          , variElementOccurences :: Int32
@@ -838,7 +846,7 @@ instance Unpack (Maybe Func) where
 -- | Same reasoning as with 'VariElement'.
 data FuncPosition =
        FuncPosition
-         { funcPositionName       :: (Pointer BS.ByteString)
+         { funcPositionName       :: Pointer BS.ByteString
          , funcPositionOccurences :: Word32
          , funcPositionAddress    :: Word32
          }
@@ -849,7 +857,7 @@ data FuncPosition =
 --   Note: first argument is always @"arguments"@, then optionally other ones.
 data FuncArguments =
        FuncArguments
-         { funcArgumentsName      :: (Pointer BS.ByteString)
+         { funcArgumentsName      :: Pointer BS.ByteString
          , funcArgumentsArguments :: [Pointer BS.ByteString]
          }
        deriving (Show, Eq)
@@ -903,7 +911,7 @@ instance Unpack Txtr where
 data TxtrElement =
        TxtrElement
          { txtrElementUnknown1 :: Word32
-         , txtrElementImage    :: (Pointer PNG)
+         , txtrElementImage    :: Pointer PNG
          }
        deriving (Show, Eq, Generic, Unpack)
 

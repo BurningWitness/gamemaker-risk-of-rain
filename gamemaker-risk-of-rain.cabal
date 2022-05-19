@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.33.0.
+-- This file has been generated from package.yaml by hpack version 0.34.4.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 909b01f499bcb439c51c37513f0a629170419f1456b89ff76b9f170ac0a029eb
+-- hash: aca1a3e38f96a92d5ae8e112159f48827481643b4aa697192e20719f72a2f7f1
 
 name:           gamemaker-risk-of-rain
 version:        0.1.0.0
@@ -15,7 +15,7 @@ homepage:       https://github.com/burningwitness/gamemaker-risk-of-rain#readme
 bug-reports:    https://github.com/burningwitness/gamemaker-risk-of-rain/issues
 author:         Oleksii Divak
 maintainer:     Oleksii Divak <frozenwitness@gmail.com>
-copyright:      (c) 2021, Oleksii Divak
+copyright:      (c) 2021-2022, Oleksii Divak
 license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
@@ -38,14 +38,17 @@ library
       Paths_gamemaker_risk_of_rain
   hs-source-dirs:
       src
-  default-extensions: NoImplicitPrelude
+  default-extensions:
+      NoImplicitPrelude
   ghc-options: -Wall
   build-depends:
-      base >=4.7 && <5
+      attoparsec
+    , base >=4.12 && <5
     , binary
     , bytestring
     , containers
-    , lens
+    , microlens
+    , microlens-th
     , time
   default-language: Haskell2010
 
@@ -56,14 +59,17 @@ test-suite coherence
       Paths_gamemaker_risk_of_rain
   hs-source-dirs:
       test
-  default-extensions: NoImplicitPrelude
-  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N -O2
+  default-extensions:
+      NoImplicitPrelude
+  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N -O2 -main-is Coherence
   build-depends:
-      base >=4.7 && <5
+      attoparsec
+    , base >=4.12 && <5
     , binary
     , bytestring
     , containers
     , gamemaker-risk-of-rain
-    , lens
+    , microlens
+    , microlens-th
     , time
   default-language: Haskell2010

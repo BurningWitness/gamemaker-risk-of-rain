@@ -17,27 +17,22 @@
         absolutely unoptimized, so decompilation is just straightforward parsing.
  -}
 
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE DeriveFunctor
+           , DerivingVia
+           , FlexibleInstances
+           , FunctionalDependencies
+           , GeneralizedNewtypeDeriving
+           , LambdaCase
+           , OverloadedStrings
+           , PatternSynonyms
+           , StandaloneDeriving
+           , TypeOperators
+           , ViewPatterns #-}
 
 -- For any code readers: this module doesn't use any parsers, it's just
 -- 'Either' over a 'Seq' and a lot of backwards pattern matching,
 -- so while I tried to document this module in a nice fashion,
 -- the code still most certainly looks like garbage.
-
--- Also compiling this as of GHC 8.8 produces a bunch of @Pattern match has
--- inaccessible right side@ warnings on matching nested '(:<|)' and '(:|>)' operations.
--- This is supposedly fixed as of GHC 8.10, but as I'm writing this reflex does not
--- support base-4.14.
 
 module GameMaker.RiskOfRain.Decompilation
   ( -- * Datatypes
@@ -70,7 +65,6 @@ import           GameMaker.RiskOfRain.Decompilation.Raw hiding (Comparison, Call
 import           GameMaker.RiskOfRain.Unpacking
 
 import           Control.Applicative
-import           Control.Lens hiding ((:<), (:>), op, assign, pre)
 import           Control.Monad ((>=>), guard)
 import           Data.ByteString.Builder
 import qualified Data.ByteString.Char8 as BS
@@ -84,6 +78,7 @@ import           Data.Semigroup (stimes)
 import qualified Data.Sequence as S
 import           Data.Sequence ( Seq (..) )
 import           Data.String (IsString)
+import           Lens.Micro
 import           Numeric (showFFloat)
 import           Prelude
 
@@ -93,7 +88,11 @@ import           Prelude
 newtype Stringlike = Stringlike [Char]
                      deriving (Semigroup, Monoid, IsString)
 
-deriving via Either [Char] instance {-# OVERLAPS #-} Alternative (Either Stringlike)
+instance Alternative (Either Stringlike) where
+    empty = Left ""
+
+    Left _ <|> n = n
+    m      <|> _ = m
 
 instance MonadFail (Either Stringlike) where
   fail = Left . Stringlike

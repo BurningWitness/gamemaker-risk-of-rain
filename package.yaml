@@ -1,11 +1,11 @@
 name:                gamemaker-risk-of-rain
-version:             0.1.0.0
+version:             0.1.1.0
 github:              burningwitness/gamemaker-risk-of-rain
 license:             BSD3
 license-file:        LICENSE
 author:              Oleksii Divak
 maintainer:          Oleksii Divak <frozenwitness@gmail.com>
-copyright:           (c) 2021, Oleksii Divak
+copyright:           (c) 2021-2022, Oleksii Divak
 
 extra-source-files:
 - README.md
@@ -16,11 +16,13 @@ category:            Decompiler
 description:         Please see the README on GitHub at <https://github.com/burningwitness/gamemaker-risk-of-rain#readme>
 
 dependencies:
+- attoparsec
 - base >= 4.12 && < 5
 - binary
 - bytestring
 - containers
-- lens
+- microlens
+- microlens-th
 - time
 
 ghc-options:
@@ -41,5 +43,6 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     - -O2
+    - -main-is Coherence
     dependencies:
     - gamemaker-risk-of-rain

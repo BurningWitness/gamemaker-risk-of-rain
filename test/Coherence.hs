@@ -1,15 +1,14 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Main where
+module Coherence where
 
 import           GameMaker.RiskOfRain.Decompilation
-import           GameMaker.RiskOfRain.Lens
+import           GameMaker.RiskOfRain.Lens hiding (path)
 import           GameMaker.RiskOfRain.Unpacking
 
-import           Control.Lens hiding (elements)
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy as BSL
-import           Data.Either (isRight)
+import           Lens.Micro
 import           Prelude
 import           System.Environment
 
@@ -35,52 +34,51 @@ main = do
                            ]
           BSC.putStrLn $ mconcat
                            [ "Sound files: "
-                           , BSC.pack . show $ lengthOf (sond.unSond.unDictionary.each) form
+                           , BSC.pack . show . length $ form^.sond.unSond.unDictionary
                            ]
           BSC.putStrLn $ mconcat
                            [ "Sprites: "
-                           , BSC.pack . show $ lengthOf (sprt.unSprt.unDictionaryS.each) form
+                           , BSC.pack . show . length $ form^.sprt.unSprt.unDictionaryS
                            ]
           BSC.putStrLn $ mconcat
                            [ "Backgrounds: "
-                           , BSC.pack . show $ lengthOf (bgnd.unBgnd.unDictionary.each) form
+                           , BSC.pack . show . length $ form^.bgnd.unBgnd.unDictionary
                            ]
           BSC.putStrLn $ mconcat
                            [ "Fonts: "
-                           , BSC.pack . show $ lengthOf (font.unFont.unDictionary.each) form
+                           , BSC.pack . show . length $ form^.font.unFont.unDictionary
                            ]
           BSC.putStrLn $ mconcat
                            [ "Rooms: "
-                           , BSC.pack . show $ lengthOf (room.unRoom.unDictionary.each) form
+                           , BSC.pack . show . length $ form^.room.unRoom.unDictionary
                            ]
           BSC.putStrLn $ mconcat
                            [ "Texture slices: "
-                           , BSC.pack . show $ lengthOf (tpag.unTpag.unDictionary.each) form
+                           , BSC.pack . show . length $ form^.tpag.unTpag.unDictionary
                            ]
           BSC.putStrLn $ mconcat
                            [ "Unique function names: "
-                           , BSC.pack . show $ lengthOf (code._Just.elements.each) form
+                           , BSC.pack . show . length $ form^.code._Just.elements
                            ]
           BSC.putStrLn $ mconcat
                            [ "Unique variable names: "
-                           , BSC.pack . show $ lengthOf (vari._Just.elements.each) form
+                           , BSC.pack . show . length $ form^.vari._Just.elements
                            ]
           BSC.putStrLn $ mconcat
                            [ "Unique GameMaker function names: "
-                           , BSC.pack . show $ lengthOf (func._Just.positions.each) form
+                           , BSC.pack . show . length $ form^.func._Just.positions
                            ]
           BSC.putStrLn $ mconcat
                            [ "Strings: "
-                           , BSC.pack . show $ lengthOf (strg.unStrg.unDictionary.each) form
+                           , BSC.pack . show . length $ form^.strg.unStrg.unDictionary
                            ]
-
           BSC.putStrLn $ mconcat
                            [ "Textures: "
-                           , BSC.pack . show $ lengthOf (txtr.unTxtr.unDictionaryS.each) form
+                           , BSC.pack . show . length $ form^.txtr.unTxtr.unDictionaryS
                            ]
           BSC.putStrLn $ mconcat
                            [ "Audio files: "
-                           , BSC.pack . show $ lengthOf (audo.unAudo.unDictionaryS.each) form
+                           , BSC.pack . show . length $ form^.audo.unAudo.unDictionaryS
                            ]
           case expressions form of
             Left err     -> fail $ "Expression parsing error: " <> err

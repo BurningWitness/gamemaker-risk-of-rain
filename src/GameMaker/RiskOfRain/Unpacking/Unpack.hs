@@ -1,21 +1,21 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE DefaultSignatures #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DefaultSignatures
+           , DeriveGeneric
+           , FlexibleContexts
+           , FlexibleInstances
+           , GeneralizedNewtypeDeriving
+           , MultiParamTypeClasses
+           , OverloadedStrings
+           , TypeFamilies
+           , TypeOperators #-}
 
 module GameMaker.RiskOfRain.Unpacking.Unpack where
 
---import           Codec.Picture
 import           Control.Applicative
-import           Control.Lens hiding (to)
 import           Control.Monad
 import           Data.Bits
 import           Data.Bool (bool)
 import           Data.Binary.Get
+import           Data.Bifunctor
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import           Data.Char
@@ -26,12 +26,14 @@ import           Data.Time.Clock
 import           Data.Time.Clock.System
 import           Data.Word
 import           GHC.Generics
+import           Lens.Micro hiding (to)
+import           Lens.Micro.Internal
+import           Numeric
 import           Prelude
 
 
 
--- | For those spicy moments when you find a 'Pointer', but you got no clue where it
---   points, so you need to 'pinpoint' its location.
+-- | Looks up what chunk the pointer corresponds to. For debug only.
 pinpoint :: Int -> BSL.ByteString -> Either [Char] BS.ByteString
 pinpoint size =
   bimap (\(_, _, s) -> s) (\(_, _, a) -> a) . runGetOrFail throughForm
@@ -54,7 +56,7 @@ pinpoint size =
 
 
 
--- | Consumes an IFF chunk, 'isolate'ing the chunk contexts
+-- | Consumes an IFF chunk, isolating the chunk contents.
 chunk :: BS.ByteString -> (Word32 -> Get a) -> Get a
 chunk name parser = do
   name' <- getByteString 4
@@ -336,16 +338,16 @@ instance Unpack MD5 where
 
 
 
-data Argb = Argb Word8 Word8 Word8 Word8
-            deriving (Show, Eq)
+data RGBA = RGBA Word8 Word8 Word8 Word8
+            deriving (Generic, Eq)
 
-instance Unpack Argb where
-  unpack _ = do
-    b <- getWord8
-    g <- getWord8
-    r <- getWord8
-    a <- getWord8
-    return $ Argb a r g b
+instance Show RGBA where
+  show (RGBA r g b a) =
+    let pad v | length (showHex v "") < 2 = replicate (2 - length (showHex v "")) '0' <> showHex v ""
+              | otherwise                 = showHex v ""
+    in '#' : mconcat [ pad r, pad g, pad b, pad a ]
+
+instance Unpack RGBA
 
 
 

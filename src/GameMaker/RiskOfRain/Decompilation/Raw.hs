@@ -1,8 +1,8 @@
-{-# LANGUAGE DeriveFunctor #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE DeriveFunctor
+           , DerivingStrategies
+           , FlexibleContexts
+           , GeneralizedNewtypeDeriving
+           , PatternSynonyms #-}
 
 module GameMaker.RiskOfRain.Decompilation.Raw
   ( -- * Extra types
@@ -30,7 +30,6 @@ import           GameMaker.RiskOfRain.Lens
 import           GameMaker.RiskOfRain.Unpacking
 
 import           Control.Applicative
-import           Control.Lens hiding (elements, op, transform, parts)
 import           Data.Binary.Get
 import           Data.Bits
 import qualified Data.ByteString.Char8 as BS
@@ -38,6 +37,8 @@ import           Data.Int
 import qualified Data.IntMap.Strict as IMS
 import           Data.List (mapAccumL)
 import           Data.Word
+import           Lens.Micro
+import           Lens.Micro.Internal
 import           Prelude
 
 
