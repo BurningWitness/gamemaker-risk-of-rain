@@ -1,0 +1,117 @@
+version: 2.1
+
+orbs:
+  win: circleci/windows@2.2.0
+
+jobs:
+  build-linux:
+    machine:
+      image: ubuntu-2004:current
+    resource_class: medium
+    parameters:
+      version:
+        type: string
+    steps:
+      - checkout
+      - restore_cache:
+          name: Restore
+          key: linux-<< parameters.version >>-{{ checksum "gamemaker-risk-of-rain.cabal" }}
+      - run:
+          name: Install GHC
+          command: |
+            sudo add-apt-repository ppa:hvr/ghc
+            sudo apt-get install ghc-<< parameters.version >> cabal-install-3.4
+            echo 'export PATH=/opt/ghc/bin:$PATH' >> $BASH_ENV
+
+      - run:
+          name: Update Dependencies
+          command: cabal new-update && cabal new-install --lib
+      - run:
+          name: Build
+          command: cabal new-build --enable-tests --enable-documentation
+      - save_cache:
+          name: Cache
+          key: linux-<< parameters.version >>-{{ checksum "gamemaker-risk-of-rain.cabal" }}
+          paths:
+            - "/root/.cabal"
+            - "dist-newstyle"
+
+  build-macos:
+    macos:
+      xcode: 12.5.1
+    resource_class: medium
+    parameters:
+      resolver:
+        type: string
+    steps:
+      - checkout
+      - restore_cache:
+          name: Restore
+          key: macos-<< parameters.resolver >>-{{ checksum "gamemaker-risk-of-rain.cabal" }}
+      - run:
+          name: Install Stack
+          command: |
+            curl -sSL https://get.haskellstack.org/ | sh
+
+      - run:
+          name: Build
+          command: |
+            stack init --resolver << parameters.resolver >>
+            stack test --no-terminal --no-run-tests
+      - save_cache:
+          name: Cache
+          key: macos-<< parameters.resolver >>-{{ checksum "gamemaker-risk-of-rain.cabal" }}
+          paths:
+            - "$HOME/.stack"
+            - ".stack-work"
+
+  build-windows:
+    executor: win/default
+    parameters:
+      resolver:
+        type: string
+    steps:
+      - checkout
+      - restore_cache:
+          name: Restore
+          key: windows--<< parameters.resolver >>-{{ checksum "gamemaker-risk-of-rain.cabal" }}
+      - run:
+          name: Install Stack
+          shell: bash.exe
+          command: |
+            mkdir stack-build
+            cd stack-build
+            curl -LO --no-progress-meter https://get.haskellstack.org/stable/windows-x86_64.zip
+            unzip windows-x86_64.zip
+            mkdir -pv "$APPDATA/local/bin"
+            mv -v stack.exe "$APPDATA/local/bin"
+            cd ..
+            echo 'export PATH=$APPDATA/local/bin:$PATH' >> $BASH_ENV
+
+      - run:
+          name: Build
+          shell: bash.exe
+          command: |
+            stack init --resolver << parameters.resolver >>
+            stack test --no-run-tests --no-terminal
+      - save_cache:
+          name: Cache
+          key: windows-<< parameters.resolver >>-{{ checksum "gamemaker-risk-of-rain.cabal" }}
+          paths:
+            - "$APPDATA/stack"
+            - ".stack-work"
+
+
+
+workflows:
+  workflow:
+    jobs:
+      - build-linux:
+          name: linux-9.0.1
+          version: 9.0.1
+      - build-macos:
+          name: macos-lts-19.7
+          resolver: lts-19.7
+      - build-windows:
+          name: windows-lts-19.7
+          resolver: lts-19.7

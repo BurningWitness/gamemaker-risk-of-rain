@@ -1,13 +1,7 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.34.4.
---
--- see: https://github.com/sol/hpack
---
--- hash: aca1a3e38f96a92d5ae8e112159f48827481643b4aa697192e20719f72a2f7f1
-
 name:           gamemaker-risk-of-rain
-version:        0.1.0.0
+version:        0.2.0.0
 synopsis:       Risk of Rain 1 GameMaker data file unpacking
 description:    Please see the README on GitHub at <https://github.com/burningwitness/gamemaker-risk-of-rain#readme>
 category:       Decompiler
@@ -20,56 +14,57 @@ license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
 extra-source-files:
-    README.md
+  README.md
 
 source-repository head
   type: git
   location: https://github.com/burningwitness/gamemaker-risk-of-rain
 
 library
-  exposed-modules:
-      Data.Key
-      GameMaker.RiskOfRain.Decompilation
-      GameMaker.RiskOfRain.Decompilation.Raw
-      GameMaker.RiskOfRain.Lens
-      GameMaker.RiskOfRain.Unpacking
-      GameMaker.RiskOfRain.Unpacking.Unpack
-  other-modules:
-      Paths_gamemaker_risk_of_rain
-  hs-source-dirs:
-      src
-  default-extensions:
-      NoImplicitPrelude
-  ghc-options: -Wall
-  build-depends:
-      attoparsec
-    , base >=4.12 && <5
-    , binary
-    , bytestring
-    , containers
-    , microlens
-    , microlens-th
-    , time
+  exposed-modules: GameMaker.RiskOfRain
+                   GameMaker.RiskOfRain.Decompilation
+                   GameMaker.RiskOfRain.Decompilation.Raw
+                   GameMaker.RiskOfRain.Lens
+                   GameMaker.RiskOfRain.Lens.Internal
+                   GameMaker.RiskOfRain.Unpacking
+                   GameMaker.RiskOfRain.Unpacking.Unpack
+
+  hs-source-dirs: src
+
+  default-extensions: NoImplicitPrelude
+
+  ghc-options: -Wall -O2
+
+  build-depends: base >=4.12 && <5
+               , binary
+               , bytestring
+               , containers
+               , deepseq
+               , microlens
+               , microlens-platform
+               , microlens-th
+               , template-haskell
+               , time
+               , vector
+
   default-language: Haskell2010
 
 test-suite coherence
   type: exitcode-stdio-1.0
-  main-is: Coherence.hs
-  other-modules:
-      Paths_gamemaker_risk_of_rain
-  hs-source-dirs:
-      test
-  default-extensions:
-      NoImplicitPrelude
-  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N -O2 -main-is Coherence
-  build-depends:
-      attoparsec
-    , base >=4.12 && <5
-    , binary
-    , bytestring
-    , containers
-    , gamemaker-risk-of-rain
-    , microlens
-    , microlens-th
-    , time
+
+  main-is: Main.hs
+
+  hs-source-dirs: test/coherence
+
+  default-extensions: NoImplicitPrelude
+
+  ghc-options: -Wall -O2 -threaded -rtsopts -with-rtsopts=-N
+
+  build-depends: base >=4.12 && <5
+               , bytestring
+               , deepseq
+               , gamemaker-risk-of-rain
+               , microlens
+               , optparse-applicative
+
   default-language: Haskell2010

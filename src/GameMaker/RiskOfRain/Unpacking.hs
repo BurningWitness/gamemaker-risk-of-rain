@@ -18,6 +18,8 @@
            , FlexibleInstances
            , OverloadedStrings #-}
 
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module GameMaker.RiskOfRain.Unpacking
   ( InfoFlag (..)
   , CRC32 (..)
@@ -31,115 +33,149 @@ module GameMaker.RiskOfRain.Unpacking
 import           GameMaker.RiskOfRain.Unpacking.Unpack
 
 import           Control.Applicative
+import           Control.DeepSeq
 import           Control.Monad
 import           Data.Binary.Get
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
+import           Data.Functor ((<&>))
 import           Data.Int
+import           Data.String
 import           Data.Time.Clock (UTCTime)
+import           Data.Vector (Vector)
+import qualified Data.Vector as Vec
 import           Data.Word
 import           GHC.Generics
 import           Prelude
 
 
 
-decodeForm :: BSL.ByteString -> Either [Char] Form
+-- | Decodes the 'Form'.
+--
+--   First argument of the resulting tuple is a list of parsed chunk names.
+--   Each name is produced lazily after the previous chunk is evaluated.
+--   Reaching end of the list thus means fully evaluating the decoding result.
+decodeForm :: IsString s => BSL.ByteString -> ([(Int, s)], Either [Char] Form)
 decodeForm file =
-  case runGetOrFail (unpack file) file of
-    Left (_, _, err) -> Left err
-    Right (_, _, a) -> Right a
+  case runGetOrFail (extChunk "FORM") file of
+    Left  (_   , _, err     ) -> ([], Left err)
+    Right (rest, _, formsize) ->
+      ( segment "GEN8"
+      . segment "OPTN"
+      . segment "EXTN"
+      . segment "SOND"
+      . segment "AGRP"
+      . segment "SPRT"
+      . segment "BGND"
+      . segment "PATH"
+      . segment "SCPT"
+      . segment "SHDR"
+      . segment "FONT"
+      . segment "TMLN"
+      . segment "OBJT"
+      . segment "ROOM"
+      . segment "DAFL"
+      . segment "TPAG"
+      . tiltCode (segment "CODE")
+      . segment "VARI"
+      . segment "FUNC"
+      . segment "STRG"
+      . segment "TXTR"
+      . segment "AUDO"
+      ) (\x _ _ _ -> ([], Right x)) Form 1 (BSL.take (fromIntegral formsize) rest) 0
+  where
+    segment name f app n rest off =
+      let (x, y) = case runGetOrFail (unpack file) rest of
+                     Right (rest', off', a  ) -> f (app a) (n + 1) rest' (off + off')
+                     Left  (_    , _   , err) -> ([], Left err)
+      in ((n, name):x, y)
+
+    tiltCode f x n r o p =
+      let (a, b) = f x n r o p
+      in ( a
+         , b <&> \form ->
+             form
+               { fCode = fCode form <&> \code ->
+                           code
+                             { cOffset   = fromIntegral p + cOffset code
+                             , cElements = cElements code <&> \el ->
+                                             el { cfOffset = fromIntegral p + cfOffset el }
+                             }
+               }
+         )
+
+
+
+-- | Total number of chunks 'decodeForm' parses.
+totalChunks :: Int
+totalChunks = 22
+
+
 
 data Form =
        Form
-         { formGen8 :: Gen8
-         , formOptn :: Optn
-         , formExtn :: Extn
-         , formSond :: Sond
-         , formAgrp :: Agrp
-         , formSprt :: Sprt
-         , formBgnd :: Bgnd
-         , formPath :: Path
-         , formScpt :: Scpt
-         , formShdr :: Shdr
-         , formFont :: Font
-         , formTmln :: Tmln
-         , formObjt :: Objt
-         , formRoom :: Room
-         , formDafl :: Dafl
-         , formTpag :: Tpag
-         , formCode :: Maybe Code
-         , formVari :: Maybe Vari
-         , formFunc :: Maybe Func
-         , formStrg :: Strg
-         , formTxtr :: Txtr
-         , formAudo :: Audo
+         { fGen8 :: Gen8
+         , fOptn :: Optn
+         , fExtn :: Extn
+         , fSond :: Sond
+         , fAgrp :: Agrp
+         , fSprt :: Sprt
+         , fBgnd :: Bgnd
+         , fPath :: Path
+         , fScpt :: Scpt
+         , fShdr :: Shdr
+         , fFont :: Font
+         , fTmln :: Tmln
+         , fObjt :: Objt
+         , fRoom :: Room
+         , fDafl :: Dafl
+         , fTpag :: Tpag
+         , fCode :: Maybe Code
+         , fVari :: Maybe Vari
+         , fFunc :: Maybe Func
+         , fStrg :: Strg
+         , fTxtr :: Txtr
+         , fAudo :: Audo
          }
-       deriving (Show, Eq)
-
-instance Unpack Form where
-  unpack form =
-    chunk "FORM" $ \_ -> 
-      Form
-        <$> do "Chunk GEN8" `label` unpack form
-        <*> do "Chunk OPTN" `label` unpack form
-        <*> do "Chunk EXTN" `label` unpack form
-        <*> do "Chunk SOND" `label` unpack form
-        <*> do "Chunk AGRP" `label` unpack form
-        <*> do "Chunk SPRT" `label` unpack form
-        <*> do "Chunk BGND" `label` unpack form
-        <*> do "Chunk PATH" `label` unpack form
-        <*> do "Chunk SCPT" `label` unpack form
-        <*> do "Chunk SHDR" `label` unpack form
-        <*> do "Chunk FONT" `label` unpack form
-        <*> do "Chunk TMLN" `label` unpack form
-        <*> do "Chunk OBJT" `label` unpack form
-        <*> do "Chunk ROOM" `label` unpack form
-        <*> do "Chunk DAFL" `label` unpack form
-        <*> do "Chunk TPAG" `label` unpack form
-        <*> do "Chunk CODE" `label` unpack form
-        <*> do "Chunk VARI" `label` unpack form
-        <*> do "Chunk FUNC" `label` unpack form
-        <*> do "Chunk STRG" `label` unpack form
-        <*> do "Chunk TXTR" `label` unpack form
-        <*> do "Chunk AUDO" `label` unpack form
+       deriving (Show, Eq, Generic, NFData)
 
 
 
 -- | Curious information about the videogame.
 data Gen8 =
        Gen8
-         { gen8Unknown1       :: Word32
-         , gen8Name           :: Pointer BS.ByteString
-         , gen8Filename       :: Pointer BS.ByteString
-         , gen8Unknown2       :: Word32
-         , gen8Unknown3       :: Word32
-         , gen8Unknown4       :: Word32
-         , gen8Unknown5       :: Word32
-         , gen8Unknown6       :: Word32
-         , gen8Unknown7       :: Word32
-         , gen8Unknown8       :: Word32
-         , gen8NameUnderscore :: Pointer BS.ByteString
-         , gen8Major          :: Word32
-         , gen8Minor          :: Word32
-         , gen8Release        :: Word32
-         , gen8Build          :: Word32
-         , gen8DefaultHeight  :: Word32
-         , gen8DefaultWidth   :: Word32
-         , gen8Info           :: InfoFlags
-         , gen8LicenseMD5     :: MD5
-         , gen8LicenseCRC32   :: CRC32
-         , gen8Timestamp      :: UTCTime
-         , gen8Unknown9       :: Word32
-         , gen8DisplayName    :: Pointer BS.ByteString
-         , gen8Unknown10      :: Word32
-         , gen8Unknown11      :: Word32
-         , gen8Unknown12      :: Word32
-         , gen8Unknown13      :: Word32
-         , gen8Unknown14      :: Word32
-         , gen8Unknown15      :: Word32
-         , gen8Rooms          :: [Word32]
+         { gUnknown1       :: Word32
+         , gName           :: Pointer BS.ByteString
+         , gFilename       :: Pointer BS.ByteString
+         , gUnknown2       :: Word32
+         , gUnknown3       :: Word32
+         , gUnknown4       :: Word32
+         , gUnknown5       :: Word32
+         , gUnknown6       :: Word32
+         , gUnknown7       :: Word32
+         , gUnknown8       :: Word32
+         , gName_          :: Pointer BS.ByteString
+         , gMajor          :: Word32
+         , gMinor          :: Word32
+         , gRelease        :: Word32
+         , gBuild          :: Word32
+         , gDefaultHeight  :: Word32
+         , gDefaultWidth   :: Word32
+         , gInfo           :: InfoFlags
+         , gLicenseMD5     :: MD5
+         , gLicenseCRC32   :: CRC32
+         , gTimestamp      :: UTCTime
+         , gUnknown9       :: Word32
+         , gDisplayName    :: Pointer BS.ByteString
+         , gUnknown10      :: Word32
+         , gUnknown11      :: Word32
+         , gUnknown12      :: Word32
+         , gUnknown13      :: Word32
+         , gUnknown14      :: Word32
+         , gUnknown15      :: Word32
+         , gRooms          :: Vector Word32
          }
-       deriving (Show, Eq)
+       deriving (Show, Eq, Generic, NFData)
 
 instance Unpack Gen8 where
   unpack form =
@@ -175,13 +211,16 @@ instance Unpack Gen8 where
         <*> unpack form
         <*> unpack form
         <*> do size <- fromIntegral <$> getWord32le
-               replicateM size getWord32le
+               Vec.replicateM size getWord32le
 
 
 
 -- | Garbage. Identical between Linux and Windows versions.
-newtype Optn = Optn { optnUnOptn :: BSL.ByteString }
+newtype Optn = Optn { unOptn :: BSL.ByteString }
                deriving (Show, Eq)
+
+instance NFData Optn where
+  rnf (Optn bs) = rnf bs
 
 instance Unpack Optn where
   unpack _ =
@@ -196,11 +235,11 @@ instance Unpack Optn where
 --   is just ones and twos scattered around.
 data Extn =
        Extn
-         { extnUnknown1 :: Dictionary ExtnTriplet
-         , extnUnknown2 :: Dictionary ExtnSegment
-         , extnUnknown3 :: BSL.ByteString
+         { eUnknown1 :: Dictionary ExtnTriplet
+         , eUnknown2 :: Dictionary ExtnSegment
+         , eUnknown3 :: BSL.ByteString
          }
-       deriving (Show, Eq)
+       deriving (Show, Eq, Generic, NFData)
 
 instance Unpack Extn where
   unpack form =
@@ -212,30 +251,30 @@ instance Unpack Extn where
 
 data ExtnTriplet =
        ExtnTriplet
-         { extnTripletUnknown1 :: Pointer BS.ByteString
-         , extnTripletUnknown2 :: Pointer BS.ByteString
-         , extnTripletUnknown3 :: Pointer BS.ByteString
+         { etUnknown1 :: Pointer BS.ByteString
+         , etUnknown2 :: Pointer BS.ByteString
+         , etUnknown3 :: Pointer BS.ByteString
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Eq, Generic, NFData, Unpack)
 
 data ExtnSegment =
        ExtnSegment
-         { extnSegmentName       :: ExtnTriplet
-         , extnSegmentUnknown1   :: Word32
-         , extnSegmentOperations :: Dictionary ExtnOperation
+         { esName       :: ExtnTriplet
+         , esUnknown1   :: Word32
+         , esOperations :: Dictionary ExtnOperation
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Eq, Generic, NFData, Unpack)
 
 data ExtnOperation =
        ExtnOperation
-         { extnOperationOperationFs :: Pointer BS.ByteString
-         , extnOperationOperationId :: Word32
-         , extnOperationUnknown1    :: Word32
-         , extnOperationUnknown2    :: Word32
-         , extnOperationOperation   :: Pointer BS.ByteString
-         , extnOperationUnknown3    :: [Word32]
+         { eoOperationFs :: Pointer BS.ByteString
+         , eoOperationId :: Word32
+         , eoUnknown1    :: Word32
+         , eoUnknown2    :: Word32
+         , eoOperation   :: Pointer BS.ByteString
+         , eoUnknown3    :: Vector Word32
          }
-       deriving (Show, Eq)
+       deriving (Show, Eq, Generic, NFData)
 
 instance Unpack ExtnOperation where
   unpack form =
@@ -246,13 +285,16 @@ instance Unpack ExtnOperation where
       <*> unpack form
       <*> unpack form
       <*> do size <- fromIntegral <$> getWord32le
-             replicateM size $ unpack form
+             Vec.replicateM size $ unpack form
 
 
 
 -- | Sound files and information.
-newtype Sond = Sond { sondUnSond :: Dictionary SondElement }
+newtype Sond = Sond { unSond :: Dictionary SondElement }
                deriving (Show, Eq)
+
+instance NFData Sond where
+  rnf (Sond dict) = rnf dict
 
 instance Unpack Sond where
   unpack form =
@@ -262,23 +304,26 @@ instance Unpack Sond where
 
 data SondElement =
        SondElement
-         { sondElementName       :: Pointer BS.ByteString
-         , sondElementFlags      :: SoundEntryFlags
-         , sondElementExtension  :: Pointer BS.ByteString -- Always ".ogg"
-         , sondElementFileName   :: Pointer BS.ByteString
-         , sondElementUnknown1   :: Word32                  -- Always zero
-         , sondElementVolume     :: Float
-         , sondElementPitch      :: Float
-         , sondElementGroupId    :: Float
-         , sondElementIdentifier :: Int32
+         { seName       :: Pointer BS.ByteString
+         , seFlags      :: SoundEntryFlags
+         , seExtension  :: Pointer BS.ByteString -- Always ".ogg"
+         , seFilename   :: Pointer BS.ByteString
+         , seUnknown1   :: Word32                -- Always zero
+         , seVolume     :: Float
+         , sePitch      :: Float
+         , seGroupId    :: Float
+         , seIdentifier :: Int32
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Eq, Generic, NFData, Unpack)
 
 
 
 -- | Empty in both files
-newtype Agrp = Agrp { agrpUnAgrp :: Dictionary ()}
+newtype Agrp = Agrp { unAgrp :: Dictionary ()}
                deriving (Show, Eq)
+
+instance NFData Agrp where
+  rnf (Agrp dict) = rnf dict
 
 instance Unpack Agrp where
   unpack form =
@@ -289,8 +334,11 @@ instance Unpack Agrp where
 
 
 -- | Foreground sprites with all the masks and stuff.
-newtype Sprt = Sprt { sprtUnSprt :: DictionaryS SprtElement }
+newtype Sprt = Sprt { unSprt :: DictionaryS SprtElement }
                deriving (Show, Eq)
+
+instance NFData Sprt where
+  rnf (Sprt dict) = rnf dict
 
 instance Unpack Sprt where
   unpack form =
@@ -300,24 +348,24 @@ instance Unpack Sprt where
 
 data SprtElement =
        SprtElement
-         { sprtElementName         :: Pointer BS.ByteString
-         , sprtElementWidth        :: Int32
-         , sprtElementHeight       :: Int32
-         , sprtElementMarginLeft   :: Int32
-         , sprtElementMarginRight  :: Int32
-         , sprtElementMarginTop    :: Int32
-         , sprtElementMarginBottom :: Int32
-         , sprtElementUnknown1     :: Int32                 -- Always zero
-         , sprtElementUnknown2     :: Int32                 -- Always zero
-         , sprtElementUnknown3     :: Int32                 -- Always zero
-         , sprtElementBBoxMode     :: Int32
-         , sprtElementSepMasks     :: Int32
-         , sprtElementOriginX      :: Int32
-         , sprtElementOriginY      :: Int32
-         , sprtElementTextures     :: [Pointer TpagElement]
-         , sprtElementRemaining    :: BSL.ByteString
+         { speName         :: Pointer BS.ByteString
+         , speWidth        :: Int32
+         , speHeight       :: Int32
+         , speMarginLeft   :: Int32
+         , speMarginRight  :: Int32
+         , speMarginTop    :: Int32
+         , speMarginBottom :: Int32
+         , speUnknown1     :: Int32                 -- Always zero
+         , speUnknown2     :: Int32                 -- Always zero
+         , speUnknown3     :: Int32                 -- Always zero
+         , speBBoxMode     :: Int32
+         , speSepMasks     :: Int32
+         , speOriginX      :: Int32
+         , speOriginY      :: Int32
+         , speTextures     :: Vector (Pointer TpagElement)
+         , speRemaining    :: BSL.ByteString
          }
-       deriving (Show, Eq)
+       deriving (Show, Eq, Generic, NFData)
 
 instance Unpack SprtElement where
   unpack form =
@@ -337,15 +385,17 @@ instance Unpack SprtElement where
       <*> unpack form
       <*> unpack form
       <*> do size <- fromIntegral <$> getWord32le
-             replicateM size $ unpack form
+             Vec.replicateM size $ unpack form
       <*> getRemainingLazyByteString
 
 
 
-
 -- | Background sprites.
-newtype Bgnd = Bgnd { bgndUnBgnd :: Dictionary BgndElement }
+newtype Bgnd = Bgnd { unBgnd :: Dictionary BgndElement }
                deriving (Show, Eq)
+
+instance NFData Bgnd where
+  rnf (Bgnd dict) = rnf dict
 
 instance Unpack Bgnd where
   unpack form =
@@ -355,19 +405,22 @@ instance Unpack Bgnd where
 
 data BgndElement =
        BgndElement
-         { bgndElementName     :: Pointer BS.ByteString
-         , bgndElementUnknown1 :: Word32                  -- Always zero
-         , bgndElementUnknown2 :: Word32                  -- Always zero
-         , bgndElementUnknown3 :: Word32                  -- Always zero
-         , bgndElementTexture  :: Pointer TpagElement
+         { beName     :: Pointer BS.ByteString
+         , beUnknown1 :: Word32                  -- Always zero
+         , beUnknown2 :: Word32                  -- Always zero
+         , beUnknown3 :: Word32                  -- Always zero
+         , beTexture  :: Pointer TpagElement
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Eq, Generic, NFData, Unpack)
 
 
 
 -- | Empty in both files
-newtype Path = Path { pathUnPath :: Dictionary () }
+newtype Path = Path { unPath :: Dictionary () }
                deriving (Show, Eq)
+
+instance NFData Path where
+  rnf (Path dict) = rnf dict
 
 instance Unpack Path where
   unpack form =
@@ -381,8 +434,11 @@ instance Unpack Path where
 --
 --   I suppose this is an extremely elaborate strategy to bind 'CodeFunction's to
 --   'FuncPosition's or something, however the difference between the two is just a prefix.
-newtype Scpt = Scpt { scptUnScpt :: Dictionary ScptBinding }
+newtype Scpt = Scpt { unScpt :: Dictionary ScptBinding }
                deriving (Show, Eq)
+
+instance NFData Scpt where
+  rnf (Scpt dict) = rnf dict
 
 instance Unpack Scpt where
   unpack form =
@@ -392,16 +448,19 @@ instance Unpack Scpt where
 
 data ScptBinding =
        ScptBinding
-         { scptBindingPointer    :: Pointer BS.ByteString
-         , scptBindingIdentifier :: Word32
+         { sbPointer    :: Pointer BS.ByteString
+         , sbIdentifier :: Word32
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Eq, Generic, NFData, Unpack)
 
 
 
 -- | Garbage. For the record shaders are stored in STRG.
-newtype Shdr = Shdr { shdrUnShdr :: BSL.ByteString }
+newtype Shdr = Shdr { unShdr :: BSL.ByteString }
                deriving (Show, Eq)
+
+instance NFData Shdr where
+  rnf (Shdr dict) = rnf dict
 
 instance Unpack Shdr where
   unpack _ =
@@ -413,8 +472,11 @@ instance Unpack Shdr where
 
 -- | Font descriptions because GameMaker can't tug around font files, so they're shoved
 --   in textures.
-newtype Font = Font { fontUnFont :: Dictionary FontElement }
+newtype Font = Font { unFont :: Dictionary FontElement }
                deriving (Show, Eq)
+
+instance NFData Font where
+  rnf (Font dict) = rnf dict
 
 instance Unpack Font where
   unpack form =
@@ -426,40 +488,43 @@ instance Unpack Font where
 
 data FontElement =
        FontElement
-         { fontElementType_        :: Pointer BS.ByteString
-         , fontElementName         :: Pointer BS.ByteString
-         , fontElementEmSize       :: Word32
-         , fontElementBold         :: Bool
-         , fontElementItalic       :: Bool
-         , fontElementRangeStart   :: Int16
-         , fontElementCharset      :: Word8
-         , fontElementAntialiasing :: Word8
-         , fontElementRangeEnd     :: Word32
-         , fontElementTexture      :: Pointer TpagElement
-         , fontElementScaleX       :: Float
-         , fontElementScaleY       :: Float
-         , fontElementCharacters   :: Dictionary FontBit
+         { feType         :: Pointer BS.ByteString
+         , feName         :: Pointer BS.ByteString
+         , feEmSize       :: Word32
+         , feBold         :: Bool
+         , feItalic       :: Bool
+         , feRangeStart   :: Int16
+         , feCharset      :: Word8
+         , feAntialiasing :: Word8
+         , feRangeEnd     :: Word32
+         , feTexture      :: Pointer TpagElement
+         , feScaleX       :: Float
+         , feScaleY       :: Float
+         , feCharacters   :: Dictionary FontBit
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Eq, Generic, NFData, Unpack)
 
 data FontBit =
        FontBit
-         { fontBitCharacter :: Char
-         , fontBitOffsetX   :: Int16
-         , fontBitOffsetY   :: Int16
-         , fontBitWidth     :: Int16
-         , fontBitHeight    :: Int16
-         , fontBitAdvance   :: Int16
-         , fontBitBearingX  :: Int16
-         , fontBitBearingY  :: Int16
+         { fbCharacter :: Char
+         , fbOffsetX   :: Int16
+         , fbOffsetY   :: Int16
+         , fbWidth     :: Int16
+         , fbHeight    :: Int16
+         , fbAdvance   :: Int16
+         , fbBearingX  :: Int16
+         , fbBearingY  :: Int16
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Eq, Generic, NFData, Unpack)
 
 
 
 -- | Always a single 32bit zero.
-newtype Tmln = Tmln { tmlnUnTmln :: BSL.ByteString }
+newtype Tmln = Tmln { unTmln :: BSL.ByteString }
                deriving (Show, Eq)
+
+instance NFData Tmln where
+  rnf (Tmln bs) = rnf bs
 
 instance Unpack Tmln where
   unpack _ =
@@ -471,8 +536,11 @@ instance Unpack Tmln where
 
 -- | Pretty much garbage. Extremely bulky, confusing and utterly undecryptable since
 --   Risk of Rain barely uses physics at all.
-newtype Objt = Objt { objtUnObjt :: Dictionary ObjtElement }
+newtype Objt = Objt { unObjt :: Dictionary ObjtElement }
                deriving (Show, Eq)
+
+instance NFData Objt where
+  rnf (Objt dict) = rnf dict
 
 instance Unpack Objt where
   unpack form =
@@ -485,30 +553,30 @@ instance Unpack Objt where
 -- | The only thing from here we know for sure are name and sprite index
 data ObjtElement =
        ObjtElement
-         { objtElementName            :: Pointer BS.ByteString
-         , objtElementSpriteIndex     :: Int32
-         , objtElementVisible         :: Bool
-         , objtElementSolid           :: Bool
-         , objtElementDepth           :: Int32
-         , objtElementPersistent      :: Bool
-         , objtElementParentId        :: Int32
-         , objtElementTextureMaskId   :: Int32
-         , objtElementUnknown1        :: Int32
-         , objtElementUnknown2        :: Int32
-         , objtElementUnknown3        :: Int32
-         , objtElementUnknown4        :: Float
-         , objtElementUnknown5        :: Float
-         , objtElementUnknown6        :: Float
-         , objtElementUnknown7        :: Float
-         , objtElementUnknown8        :: Float
-         , objtElementShapePointCount :: Int32
-         , objtElementUnknown9        :: Float
-         , objtElementUnknown10       :: Int32
-         , objtElementUnknown11       :: Int32
-         , objtElementShapePoints     :: [(Float, Float)]
-         , objtElementUnknown12       :: Dictionary ObjtSub -- Always holds 12 elements
+         { oeName            :: Pointer BS.ByteString
+         , oeSpriteIndex     :: Int32
+         , oeVisible         :: Bool
+         , oeSolid           :: Bool
+         , oeDepth           :: Int32
+         , oePersistent      :: Bool
+         , oeParentId        :: Int32
+         , oeTextureMaskId   :: Int32
+         , oeUnknown1        :: Int32
+         , oeUnknown2        :: Int32
+         , oeUnknown3        :: Int32
+         , oeUnknown4        :: Float
+         , oeUnknown5        :: Float
+         , oeUnknown6        :: Float
+         , oeUnknown7        :: Float
+         , oeUnknown8        :: Float
+         , oeShapePointCount :: Int32
+         , oeUnknown9        :: Float
+         , oeUnknown10       :: Int32
+         , oeUnknown11       :: Int32
+         , oeShapePoints     :: Vector (Float, Float)
+         , oeUnknown12       :: Dictionary ObjtSub -- Always holds 12 elements
          }
-       deriving (Show, Eq)
+       deriving (Show, Eq, Generic, NFData)
 
 instance Unpack ObjtElement where
   unpack form = do
@@ -550,39 +618,42 @@ instance Unpack ObjtElement where
       <$> unpack form
       <*> unpack form
       <*> unpack form
-      <*> replicateM (fromIntegral adNumber) (unpack form)
+      <*> Vec.replicateM (fromIntegral adNumber) (unpack form)
       <*> unpack form
 
-newtype ObjtSub = ObjtSub { objtSubUnObjtSub :: Dictionary ObjtMeta }
-                  deriving (Show, Eq, Generic, Unpack)
+newtype ObjtSub = ObjtSub { unObjtSub :: Dictionary ObjtMeta }
+                  deriving (Show, Eq, Generic, NFData, Unpack)
 
 -- | Only 'objtMetaUnknown1' seems to change meaningfully in this one, the rest is garbage.
 data ObjtMeta = ObjtMeta
-                  { objtMetaUnknown1   :: Int32
-                  , objtMetaUnknown2   :: Int32
-                  , objtMetaUnknown3   :: Int32 -- Points to eighth byte of this structure
-                  , objtMetaUnknown4   :: Int32
-                  , objtMetaUnknown5   :: Int32
-                  , objtMetaUnknown6   :: Int32
-                  , objtMetaUnknown7   :: Int32
-                  , objtMetaUnknown8   :: Int32
-                  , objtMetaUnknown9   :: Int32
-                  , objtMetaUnknown10  :: Int32
-                  , objtMetaUnknown11  :: Int32 -- Points to an empty string
-                  , objtMetaIdentifier :: Int32
-                  , objtMetaUnknown13  :: Int32
-                  , objtMetaUnknown14  :: Int32
-                  , objtMetaUnknown15  :: Int32
-                  , objtMetaUnknown16  :: Int32
-                  , objtMetaUnknown17  :: Int32
+                  { omUnknown1   :: Int32
+                  , omUnknown2   :: Int32
+                  , omUnknown3   :: Int32 -- Points to eighth byte of this structure
+                  , omUnknown4   :: Int32
+                  , omUnknown5   :: Int32
+                  , omUnknown6   :: Int32
+                  , omUnknown7   :: Int32
+                  , omUnknown8   :: Int32
+                  , omUnknown9   :: Int32
+                  , omUnknown10  :: Int32
+                  , omUnknown11  :: Int32 -- Points to an empty string
+                  , omIdentifier :: Int32
+                  , omUnknown13  :: Int32
+                  , omUnknown14  :: Int32
+                  , omUnknown15  :: Int32
+                  , omUnknown16  :: Int32
+                  , omUnknown17  :: Int32
                   }
-                deriving (Show, Eq, Generic, Unpack)
+                deriving (Show, Eq, Generic, NFData, Unpack)
 
 
 
 -- | Room data.
-newtype Room = Room { roomUnRoom :: Dictionary RoomElement }
+newtype Room = Room { unRoom :: Dictionary RoomElement }
                deriving (Show, Eq)
+
+instance NFData Room where
+  rnf (Room dict) = rnf dict
 
 instance Unpack Room where
   unpack form =
@@ -591,105 +662,108 @@ instance Unpack Room where
 
 data RoomElement =
        RoomElement
-         { roomElementName           :: Pointer BS.ByteString
-         , roomElementCaption        :: Pointer BS.ByteString
-         , roomElementWidth          :: Word32
-         , roomElementHeight         :: Word32
-         , roomElementSpeed          :: Word32
-         , roomElementPersistent     :: Bool
-         , roomElementRgba           :: RGBA
-         , roomElementDrawBGColor    :: Bool
-         , roomElementUnknown1       :: Word32
-         , roomElementFlags          :: RoomEntryFlags
-         , roomElementBgOffset       :: Word32
-         , roomElementViewOffset     :: Word32
-         , roomElementObjOffset      :: Word32
-         , roomElementTileOffset     :: Word32
-         , roomElementWorld          :: Word32
-         , roomElementTop            :: Word32
-         , roomElementLeft           :: Word32
-         , roomElementRight          :: Word32
-         , roomElementBottom         :: Word32
-         , roomElementGravityX       :: Float
-         , roomElementGravityY       :: Float
-         , roomElementMetersPerPixel :: Float
-         , roomElementBackgrounds    :: Dictionary RoomBackground
-         , roomElementViews          :: Dictionary RoomView
-         , roomElementObjects        :: Dictionary RoomObject
-         , roomElementTiles          :: Dictionary RoomTile
+         { reName           :: Pointer BS.ByteString
+         , reCaption        :: Pointer BS.ByteString
+         , reWidth          :: Word32
+         , reHeight         :: Word32
+         , reSpeed          :: Word32
+         , rePersistent     :: Bool
+         , reRgba           :: RGBA
+         , reDrawBGColor    :: Bool
+         , reUnknown1       :: Word32
+         , reFlags          :: RoomEntryFlags
+         , reBgOffset       :: Word32
+         , reViewOffset     :: Word32
+         , reObjOffset      :: Word32
+         , reTileOffset     :: Word32
+         , reWorld          :: Word32
+         , reTop            :: Word32
+         , reLeft           :: Word32
+         , reRight          :: Word32
+         , reBottom         :: Word32
+         , reGravityX       :: Float
+         , reGravityY       :: Float
+         , reMetersPerPixel :: Float
+         , reBackgrounds    :: Dictionary RoomBackground
+         , reViews          :: Dictionary RoomView
+         , reObjects        :: Dictionary RoomObject
+         , reTiles          :: Dictionary RoomTile
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Eq, Generic, NFData, Unpack)
 
 data RoomBackground =
        RoomBackground
-         { roomBackgroundEnabled    :: Bool
-         , roomBackgroundForeground :: Bool
-         , roomBackgroundBgDefIndex :: Int32
-         , roomBackgroundX          :: Int32
-         , roomBackgroundY          :: Int32
-         , roomBackgroundTileX      :: Bool
-         , roomBackgroundTileY      :: Bool
-         , roomBackgroundSpeedX     :: Int32
-         , roomBackgroundSpeedY     :: Int32
-         , roomBackgroundIdentifier :: Int32
+         { rbEnabled    :: Bool
+         , rbForeground :: Bool
+         , rbBgDefIndex :: Int32
+         , rbX          :: Int32
+         , rbY          :: Int32
+         , rbTileX      :: Bool
+         , rbTileY      :: Bool
+         , rbSpeedX     :: Int32
+         , rbSpeedY     :: Int32
+         , rbIdentifier :: Int32
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Eq, Generic, NFData, Unpack)
 
 data RoomView =
        RoomView
-         { roomViewEnabled    :: Bool
-         , roomViewViewX      :: Int32
-         , roomViewViewY      :: Int32
-         , roomViewViewWidth  :: Int32
-         , roomViewViewHeight :: Int32
-         , roomViewPortX      :: Int32
-         , roomViewPortY      :: Int32
-         , roomViewPortWidth  :: Int32
-         , roomViewPortHeight :: Int32
-         , roomViewBorderX    :: Int32
-         , roomViewBorderY    :: Int32
-         , roomViewSpeedX     :: Int32
-         , roomViewSpeedY     :: Int32
-         , roomViewIdentifier :: Int32
+         { rvEnabled    :: Bool
+         , rvViewX      :: Int32
+         , rvViewY      :: Int32
+         , rvViewWidth  :: Int32
+         , rvViewHeight :: Int32
+         , rvPortX      :: Int32
+         , rvPortY      :: Int32
+         , rvPortWidth  :: Int32
+         , rvPortHeight :: Int32
+         , rvBorderX    :: Int32
+         , rvBorderY    :: Int32
+         , rvSpeedX     :: Int32
+         , rvSpeedY     :: Int32
+         , rvIdentifier :: Int32
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Eq, Generic, NFData, Unpack)
 
 data RoomObject =
        RoomObject
-         { roomObjectX          :: Int32
-         , roomObjectY          :: Int32
-         , roomObjectIdentifier :: Int32
-         , roomObjectInitCode   :: Int32
-         , roomObjectUnknown5   :: Int32
-         , roomObjectScaleX     :: Float
-         , roomObjectScaleY     :: Float
-         , roomObjectUnknown8   :: Int32
-         , roomObjectRotation   :: Float
+         { roX          :: Int32
+         , roY          :: Int32
+         , roIdentifier :: Int32
+         , roInitCode   :: Int32
+         , roUnknown5   :: Int32
+         , roScaleX     :: Float
+         , roScaleY     :: Float
+         , roUnknown8   :: Int32
+         , roRotation   :: Float
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Eq, Generic, NFData, Unpack)
 
 data RoomTile =
        RoomTile
-         { roomTileX          :: Int32
-         , roomTileY          :: Int32
-         , roomTileBgDefIndex :: Int32
-         , roomTileSourceX    :: Int32
-         , roomTileSourceY    :: Int32
-         , roomTileWidth      :: Int32
-         , roomTileHeight     :: Int32
-         , roomTileTileDepth  :: Int32
-         , roomTileIdentifier :: Int32
-         , roomTileScaleX     :: Float
-         , roomTileScaleY     :: Float
-         , roomTileUnknown12  :: Int32
+         { rtX          :: Int32
+         , rtY          :: Int32
+         , rtBgDefIndex :: Int32
+         , rtSourceX    :: Int32
+         , rtSourceY    :: Int32
+         , rtWidth      :: Int32
+         , rtHeight     :: Int32
+         , rtTileDepth  :: Int32
+         , rtIdentifier :: Int32
+         , rtScaleX     :: Float
+         , rtScaleY     :: Float
+         , rtUnknown12  :: Int32
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Eq, Generic, NFData, Unpack)
 
 
 
 -- | Empty.
 newtype Dafl = Dafl { unDafl :: BSL.ByteString }
                deriving (Show, Eq)
+
+instance NFData Dafl where
+  rnf (Dafl bs) = rnf bs
 
 instance Unpack Dafl where
   unpack _ =
@@ -700,8 +774,11 @@ instance Unpack Dafl where
 
 
 -- | Sprite information as related to textures they reside in.
-newtype Tpag = Tpag { tpagUnTpag :: Dictionary TpagElement }
+newtype Tpag = Tpag { unTpag :: Dictionary TpagElement }
                deriving (Show, Eq)
+
+instance NFData Tpag where
+  rnf (Tpag dict) = rnf dict
 
 instance Unpack Tpag where
   unpack form =
@@ -711,34 +788,33 @@ instance Unpack Tpag where
 
 data TpagElement =
        TpagElement
-         { tpagElementOffsetX        :: Word16
-         , tpagElementOffsetY        :: Word16
-         , tpagElementWidth          :: Word16
-         , tpagElementHeight         :: Word16
-         , tpagElementRenderX        :: Word16
-         , tpagElementRenderY        :: Word16
-         , tpagElementBoundingX      :: Word16
-         , tpagElementBoundingY      :: Word16
-         , tpagElementBoundingWidth  :: Word16
-         , tpagElementBoundingHeight :: Word16
-         , tpagElementImageId        :: Word16
+         { teOffsetX        :: Word16
+         , teOffsetY        :: Word16
+         , teWidth          :: Word16
+         , teHeight         :: Word16
+         , teRenderX        :: Word16
+         , teRenderY        :: Word16
+         , teBoundingX      :: Word16
+         , teBoundingY      :: Word16
+         , teBoundingWidth  :: Word16
+         , teBoundingHeight :: Word16
+         , teImageId        :: Word16
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Eq, Generic, NFData, Unpack)
 
 
 
 -- | Interpreted GameMaker code chunk. Will be empty if the game was compiled.
 data Code =
        Code
-         { codeOffset     :: Int            -- Not part of CODE chunk but we need this
-         , codeOperations :: CodeOps
-         , codeElements   :: [CodeFunction]
+         { cOffset     :: Int            -- Not part of CODE chunk but we need this
+         , cOperations :: CodeOps
+         , cElements   :: Vector CodeFunction
          }
-       deriving (Show, Eq)
+       deriving (Show, Eq, Generic, NFData)
 
 instance Unpack (Maybe Code) where
   unpack form = do
-    cStart <- fromIntegral <$> bytesRead
     chunk "CODE" $ \cSize ->
       msum [ do True <- isEmpty
                 return Nothing
@@ -748,24 +824,26 @@ instance Unpack (Maybe Code) where
                 -- The pointer list itself
                 _ <- skip $ 4 * fromIntegral size
                 Just <$> do
-                  Code
-                           -- This could just be 'bytesRead' instead actually
-                    <$> do pure $ cStart + 4 + 4 * fromIntegral size
-                    <*> do CodeOps <$> do getLazyByteString . fromIntegral $ cSize - 4 * 6 * size - 4
+                       -- Offsets are local and are adjusted to global on function decoding
+                  Code (4 + 4 * fromIntegral size)
+                    <$> do CodeOps <$> do getLazyByteString . fromIntegral $ cSize - 4 * 6 * size - 4
                            -- Elements pointed to by the pointer list are at the very end
-                    <*> do replicateM (fromIntegral size) $ do
+                    <*> do Vec.replicateM (fromIntegral size) $ do
                              CodeFunction
                                <$> unpack form
                                <*> unpack form
                                <*> unpack form
                                <*> do offsetLocal <- fromIntegral <$> bytesRead
-                                      (cStart +) . (offsetLocal +) . fromIntegral <$> getInt32le
+                                      (offsetLocal +) . fromIntegral <$> getInt32le
                                <*> unpack form
            ]
 
 -- | Unpacked in "RiskOfRain.Decompilation"
 newtype CodeOps = CodeOps BSL.ByteString
                   deriving (Show, Eq)
+
+instance NFData CodeOps where
+  rnf (CodeOps dict) = rnf dict
 
 instance Unpack CodeOps where
   unpack _ =
@@ -774,25 +852,25 @@ instance Unpack CodeOps where
 -- | A map of functions over 'CodeOps'. None of them overlap and there is no leftover code.
 data CodeFunction =
        CodeFunction
-         { codeFunctionName       :: Pointer BS.ByteString
-         , codeFunctionSize       :: Word32
-         , codeFunctionUnknown1   :: Word32
-         , codeFunctionOffset     :: Int    -- Realigned this to global values
-         , codeFunctionUnknown2   :: Word32
+         { cfName       :: Pointer BS.ByteString
+         , cfSize       :: Word32
+         , cfUnknown1   :: Word32
+         , cfOffset     :: Int    -- Realigned this to global values
+         , cfUnknown2   :: Word32
          }
-       deriving (Show, Eq)
+       deriving (Show, Eq, Generic, NFData)
 
 
 
 -- | Variable names and where they occur in code.
 data Vari =
        Vari
-         { variUnknown1 :: Word32
-         , variUnknown2 :: Word32
-         , variUnknown3 :: Word32
-         , variElements :: [VariElement]
+         { vUnknown1 :: Word32
+         , vUnknown2 :: Word32
+         , vUnknown3 :: Word32
+         , vElements :: Vector VariElement
          }
-       deriving (Show, Eq)
+       deriving (Show, Eq, Generic, NFData)
 
 instance Unpack (Maybe Vari) where
   unpack form =
@@ -805,29 +883,29 @@ instance Unpack (Maybe Vari) where
               <$> unpack form
               <*> unpack form
               <*> unpack form
-              <*> many (unpack form)
+              <*> do Vec.fromList <$> many (unpack form)
         ]
 
 -- | Every address points to the next address and it repeats @occurences@ times.
 data VariElement =
        VariElement
-         { variElementName       :: Pointer BS.ByteString
-         , variElementUnknown1   :: Int32
-         , variElementUnknown2   :: Int32
-         , variElementOccurences :: Int32
-         , variElementAddress    :: Int32
+         { veName       :: Pointer BS.ByteString
+         , veUnknown1   :: Int32
+         , veUnknown2   :: Int32
+         , veOccurences :: Int32
+         , veAddress    :: Int32
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Eq, Generic, NFData, Unpack)
 
 
 
 -- | Function information.
 data Func =
        Func
-         { funcPositions :: [FuncPosition]
-         , funcArguments :: [FuncArguments]
+         { fPositions :: Vector FuncPosition
+         , fArguments :: Vector FuncArguments
          }
-       deriving (Show, Eq)
+       deriving (Show, Eq, Generic, NFData)
 
 instance Unpack (Maybe Func) where
   unpack form =
@@ -838,44 +916,47 @@ instance Unpack (Maybe Func) where
         , Just <$> do
             Func
               <$> do tripSize <- getWord32le
-                     replicateM (fromIntegral tripSize) $ unpack form
+                     Vec.replicateM (fromIntegral tripSize) $ unpack form
               <*> do elemSize <- getWord32le
-                     replicateM (fromIntegral elemSize) $ unpack form
+                     Vec.replicateM (fromIntegral elemSize) $ unpack form
         ]
 
 -- | Same reasoning as with 'VariElement'.
 data FuncPosition =
        FuncPosition
-         { funcPositionName       :: Pointer BS.ByteString
-         , funcPositionOccurences :: Word32
-         , funcPositionAddress    :: Word32
+         { fpName       :: Pointer BS.ByteString
+         , fpOccurences :: Word32
+         , fpAddress    :: Word32
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Eq, Generic, NFData, Unpack)
 
 -- | Arguments each function consumes.
 --
 --   Note: first argument is always @"arguments"@, then optionally other ones.
 data FuncArguments =
        FuncArguments
-         { funcArgumentsName      :: Pointer BS.ByteString
-         , funcArgumentsArguments :: [Pointer BS.ByteString]
+         { faName      :: Pointer BS.ByteString
+         , faArguments :: Vector (Pointer BS.ByteString)
          }
-       deriving (Show, Eq)
+       deriving (Show, Eq, Generic, NFData)
 
 instance Unpack FuncArguments where
   unpack form = do
     size <- fromIntegral <$> getWord32le
     FuncArguments
       <$> unpack form
-      <*> do replicateM size $ do
+      <*> do Vec.replicateM size $ do
                _argPositionId <- getWord32le
                unpack form
 
 
 
 -- | Strings.
-newtype Strg = Strg { strgUnStrg :: Dictionary StrgString }
+newtype Strg = Strg { unStrg :: Dictionary StrgString }
                deriving (Show, Eq)
+
+instance NFData Strg where
+  rnf (Strg dict) = rnf dict
 
 instance Unpack Strg where
   unpack form =
@@ -885,8 +966,11 @@ instance Unpack Strg where
       _ <- getRemainingLazyByteString
       return strg
 
-newtype StrgString = StrgString { strgStringUnStrgString :: BS.ByteString }
+newtype StrgString = StrgString { unStrgString :: BS.ByteString }
                      deriving (Show, Eq)
+
+instance NFData StrgString where
+  rnf (StrgString bs) = rnf bs
 
 instance Unpack StrgString where
   unpack form = do
@@ -897,8 +981,11 @@ instance Unpack StrgString where
 
 
 -- | Raw textures.
-newtype Txtr = Txtr { txtrUnTxtr :: DictionaryS TxtrElement }
+newtype Txtr = Txtr { unTxtr :: DictionaryS TxtrElement }
                deriving (Show, Eq)
+
+instance NFData Txtr where
+  rnf (Txtr tx) = rnf tx
 
 instance Unpack Txtr where
   unpack form =
@@ -910,16 +997,21 @@ instance Unpack Txtr where
 
 data TxtrElement =
        TxtrElement
-         { txtrElementUnknown1 :: Word32
-         , txtrElementImage    :: Pointer PNG
+         { teUnknown1 :: Word32
+         , teImage    :: Pointer PNG
          }
        deriving (Show, Eq, Generic, Unpack)
+
+instance NFData TxtrElement
 
 
 
 -- | Raw audio files.
-newtype Audo = Audo { audoUnAudo :: DictionaryS AudoFile }
+newtype Audo = Audo { unAudo :: DictionaryS AudoFile }
                deriving (Show, Eq)
+
+instance NFData Audo where
+  rnf (Audo au) = rnf au
 
 instance Unpack Audo where
   unpack form =
@@ -929,8 +1021,11 @@ instance Unpack Audo where
       _ <- getRemainingLazyByteString
       return audo
 
-newtype AudoFile = AudoFile { audoFileUnAudoFile :: BS.ByteString }
+newtype AudoFile = AudoFile { unAudoFile :: BS.ByteString }
                    deriving (Show, Eq)
+
+instance NFData AudoFile where
+  rnf (AudoFile bs) = rnf bs
 
 instance Unpack AudoFile where
   unpack _ = do

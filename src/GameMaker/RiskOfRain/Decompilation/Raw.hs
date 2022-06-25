@@ -1,11 +1,18 @@
-{-# LANGUAGE DeriveFunctor
+{-# LANGUAGE BangPatterns
+           , DeriveAnyClass
+           , DeriveFunctor
+           , DeriveGeneric
            , DerivingStrategies
            , FlexibleContexts
            , GeneralizedNewtypeDeriving
            , PatternSynonyms #-}
 
 module GameMaker.RiskOfRain.Decompilation.Raw
-  ( -- * Extra types
+  ( -- * Key
+    Key (.., (:@))
+  , getKey
+  , unkey
+  , -- * Extra types
     Int23 (..)
   , Word23 (..)
     -- * GameMaker types
@@ -23,23 +30,62 @@ module GameMaker.RiskOfRain.Decompilation.Raw
     -- * Decompilation functions
   , rawInstructions
   , instructions
+  , extort
+  , totalFunctions
   ) where
 
-import           Data.Key
 import           GameMaker.RiskOfRain.Lens
 import           GameMaker.RiskOfRain.Unpacking
 
 import           Control.Applicative
+import           Control.DeepSeq
+import           Data.Bifunctor
 import           Data.Binary.Get
 import           Data.Bits
 import qualified Data.ByteString.Char8 as BS
+import           Data.Function (on)
 import           Data.Int
 import qualified Data.IntMap.Strict as IMS
 import           Data.List (mapAccumL)
 import           Data.Word
+import           Data.Vector (Vector)
+import qualified Data.Vector as Vec
+import           GHC.Generics (Generic)
 import           Lens.Micro
 import           Lens.Micro.Internal
 import           Prelude
+
+
+
+-- | A datatype describing a key-value pair, with 'Eq', 'Ord' and 'Functor' only
+--   working over the value part.
+data Key k i = Key k i
+               deriving (Show, Functor)
+
+instance Eq i => Eq (Key k i) where
+  (==) = (==) `on` unkey
+
+instance Ord i => Ord (Key k i) where
+  compare = compare `on` unkey
+
+instance (NFData k, NFData i) => NFData (Key k i) where
+  rnf (Key k i) = rnf (k, i)
+
+instance Bifunctor Key where
+  bimap f g (Key k i) = Key (f k) (g i)
+
+
+
+{-# COMPLETE (:@) #-}
+infixr 7 :@
+pattern (:@) :: k -> i -> Key k i
+pattern (:@) k i = Key k i
+
+getKey :: Key k i -> k
+getKey (k :@ _) = k
+
+unkey :: Key k i -> i
+unkey (_ :@ i) = i
 
 
 
@@ -48,7 +94,7 @@ import           Prelude
 --   Yes the Undertale community says they're 24-bit, but guess what, they're bound
 --   from 0 to 0x7FFFFF (if reading unsigned) and the 24th bit is 0x800000.
 newtype Int23 = Int23 { unInt23 :: Int32 }
-                deriving newtype (Show, Eq, Ord, Enum, Num, Integral, Real)
+                deriving newtype (Show, Eq, Ord, Enum, Num, Integral, Real, NFData)
 
 -- | Read a 'Int23' in little-endian format. Consumes three bytes.
 getInt23le :: Get Int23
@@ -70,7 +116,7 @@ getInt23le = do
 --   It's only 23-bit for consistency with 'Int24', actual bitsize doesn't matter
 --   since you'd need 0x7FFFFF (8388607) references to start using the 24th bit.
 newtype Word23 = Word23 { unWord23 :: Word32 }
-                 deriving newtype (Show, Eq, Ord, Enum, Num, Integral, Real)
+                 deriving newtype (Show, Eq, Ord, Enum, Num, Integral, Real, NFData)
 
 -- | Read a 'Word23' in little-endian format. Consumes three bytes.
 getWord23le :: Get Word23
@@ -96,6 +142,10 @@ data DataType = Double_
               | Int16_
               | DataTypeOther Int8
                 deriving (Show, Eq, Ord)
+
+instance NFData DataType where
+  rnf (DataTypeOther a) = rnf a
+  rnf !_                = ()
 
 toDataType :: Word8 -> DataType
 toDataType val =
@@ -141,6 +191,10 @@ data Instance = ObjectSpecific Int16
               | Local
                 deriving (Show, Eq)
 
+instance NFData Instance where
+  rnf (ObjectSpecific a) = rnf a
+  rnf !_                 = ()
+
 -- | Takes up 2 bytes.
 instanceI :: Get Instance
 instanceI = do
@@ -166,6 +220,9 @@ data Variable = Array
               | VariableUnknown
                 deriving (Show, Eq, Ord)
 
+instance NFData Variable where
+  rnf !_ = ()
+
 -- | Takes up 1 byte.
 variableI :: Get Variable
 variableI = do
@@ -187,6 +244,9 @@ data Comparison = LowerThan
                 | GreaterThan
                   deriving (Show, Eq)
 
+instance NFData Comparison where
+  rnf !_ = ()
+
 -- | Takes up 1 byte.
 comparisonI :: Get Comparison
 comparisonI = do
@@ -206,6 +266,9 @@ comparisonI = do
 data Reference r = Reference r Variable
                    deriving (Show, Eq, Ord)
 
+instance NFData r => NFData (Reference r) where
+  rnf (Reference r v) = rnf (r, v)
+
 referenceI :: Get (Reference Word23)
 referenceI =
   Reference
@@ -223,7 +286,7 @@ data Push s r = PushDouble Double
               | PushInt16 Int16
               | PushStrg s
               | PushVari Instance (Reference r)
-                deriving (Show, Eq)
+                deriving (Show, Eq, Generic, NFData)
 
 pushI :: Get (Push Word32 Word23)
 pushI = do
@@ -287,7 +350,7 @@ data Instruction s r = Conv TypePair
                      | PushI16 Int16 DataType
                      | Call Int16 DataType (Reference r)
                      | Break Int16 DataType
-                       deriving (Show, Eq)
+                       deriving (Show, Eq, Generic, NFData)
 
 type Raw f = f Word32 Word23
 
@@ -297,80 +360,87 @@ type Marked = Key Int
 
 
 
-getRawInstructions :: Int -> Get [Marked (Raw Instruction)]
-getRawInstructions offsetGlobal =
-  many $ do
-    op <- lookAhead $ skip 3 >> getWord8
-    offsetLocal <- fromIntegral <$> bytesRead
-    (:@) (offsetGlobal + offsetLocal) <$> do
-      case op of
-        0x07 -> doubleI Conv
-        0x08 -> doubleI Mul
-        0x09 -> doubleI Div
-        0x0A -> doubleI Rem
-        0x0B -> doubleI Mod
-        0x0C -> doubleI Add
-        0x0D -> doubleI Sub
-        0x0E -> doubleI And
-        0x0F -> doubleI Or
-        0x10 -> doubleI Xor
-        0x11 -> singleI Neg
-        0x12 -> singleI Not
-        0x13 -> doubleI Shl
-        0x14 -> doubleI Shr
-        0x15 -> skipOp $
-                  Cmp
-                    <$> do _padding <- skip 1
-                           comparisonI
-                    <*> typePairI
-        0x45 -> Pop
-                  <$> typePairI
-                  <*> instanceI
-                  <*> do _opCode <- skip 1
-                         referenceI
-        0x86 -> singleI Dup
-        0x9C -> singleI Ret
-        0x9D -> singleI Exit
-        0x9E -> singleI Popz
-        0xB6 -> gotoI B
-        0xB7 -> gotoI Bt
-        0xB8 -> gotoI Bf
-        0xBA -> gotoI PushEnv
-        0xBB -> skipOp $ do
-          val <- getInt23le
-          return $
-            case val of
-              -0x100000 -> PopEnvAny
-              _         -> PopEnv val
-        0xC0 -> PushCst <$> pushI
-        0xC1 -> PushLoc <$> pushI
-        0xC2 -> PushGlb <$> pushI
-        0xC3 -> PushVar
-                  <$> instanceI
-                  <*> dataTypeI
-                  <*> do _opCode <- skip 1
-                         referenceI
-        0x84 -> skipOp $
-                  PushI16
-                    <$> getInt16le
-                    <*> dataTypeI
-        0xD9 -> Call
-                  <$> getInt16le
-                  <*> dataTypeI
-                  <*> do _opCode <- skip 1
-                         referenceI
-        0xFF -> skipOp $
-                  Break
-                    <$> getInt16le
-                    <*> dataTypeI
-        _    -> do
-                  val <- (,,,)
-                           <$> getWord8
-                           <*> getWord8
-                           <*> getWord8
-                           <*> getWord8
-                  fail $ "Illegal operation: " <> show val
+getRawInstructions :: Int -> Int -> Get [Marked (Raw Instruction)]
+getRawInstructions boff siz = do
+  off <- fromIntegral <$> bytesRead
+  loop (off + siz)
   where
+    loop til = do
+      off <- fromIntegral <$> bytesRead
+      case compare off til of
+        GT -> fail "Overstepped"
+        EQ -> return []
+        LT -> do
+          op <- lookAhead $ skip 3 >> getWord8
+          key <- case op of
+                   0x07 -> doubleI Conv
+                   0x08 -> doubleI Mul
+                   0x09 -> doubleI Div
+                   0x0A -> doubleI Rem
+                   0x0B -> doubleI Mod
+                   0x0C -> doubleI Add
+                   0x0D -> doubleI Sub
+                   0x0E -> doubleI And
+                   0x0F -> doubleI Or
+                   0x10 -> doubleI Xor
+                   0x11 -> singleI Neg
+                   0x12 -> singleI Not
+                   0x13 -> doubleI Shl
+                   0x14 -> doubleI Shr
+                   0x15 -> skipOp $
+                             Cmp
+                               <$> do _padding <- skip 1
+                                      comparisonI
+                               <*> typePairI
+                   0x45 -> Pop
+                             <$> typePairI
+                             <*> instanceI
+                             <*> do _opCode <- skip 1
+                                    referenceI
+                   0x86 -> singleI Dup
+                   0x9C -> singleI Ret
+                   0x9D -> singleI Exit
+                   0x9E -> singleI Popz
+                   0xB6 -> gotoI B
+                   0xB7 -> gotoI Bt
+                   0xB8 -> gotoI Bf
+                   0xBA -> gotoI PushEnv
+                   0xBB -> skipOp $ do
+                     val <- getInt23le
+                     return $
+                       case val of
+                         -0x100000 -> PopEnvAny
+                         _         -> PopEnv val
+                   0xC0 -> PushCst <$> pushI
+                   0xC1 -> PushLoc <$> pushI
+                   0xC2 -> PushGlb <$> pushI
+                   0xC3 -> PushVar
+                             <$> instanceI
+                             <*> dataTypeI
+                             <*> do _opCode <- skip 1
+                                    referenceI
+                   0x84 -> skipOp $
+                             PushI16
+                               <$> getInt16le
+                               <*> dataTypeI
+                   0xD9 -> Call
+                             <$> getInt16le
+                             <*> dataTypeI
+                             <*> do _opCode <- skip 1
+                                    referenceI
+                   0xFF -> skipOp $
+                             Break
+                               <$> getInt16le
+                               <*> dataTypeI
+                   _    -> do
+                             val <- (,,,)
+                                      <$> getWord8
+                                      <*> getWord8
+                                      <*> getWord8
+                                      <*> getWord8
+                             fail $ "Illegal operation: " <> show val
+          (:) ((boff + off) :@ key) <$> loop til
+
     skipOp :: Get a -> Get a
     skipOp action = do
       res <- action
@@ -396,60 +466,62 @@ getRawInstructions offsetGlobal =
 
 
 
-transformInstructions
-  :: ([Marked (Raw Instruction)] -> Either [Char] [a])
-  -> Code
-  -> Either [Char] [(CodeFunction, [Marked a])]
-transformInstructions transform (Code baseOffset (CodeOps bs) els) =
-  -- Parse instructions
-  case runGetOrFail (getRawInstructions baseOffset) bs of
-    Left (_, _, err)    -> Left err
-    Right (_, _, insts) -> do
-          -- Transform all the instructions, fail if any transformations fail
-      trans <- transform insts
-          -- Zip the positions back onto transformed instructions
-      let transformed = zip (getKey <$> insts) trans
-          -- Go through the element list from the left, splitting it accordingly
-          (,) (_, remainder) parts = mapAccumL slice (baseOffset, transformed) els
-      case () of
-               -- If any return a Left, fail with that
-        () | Left err <- sequence parts -> Left err
-               -- If there are leftover instructions, fail too
-           | not (null remainder)       -> Left $ mconcat
-                                                    [ "Leftover instructions ("
-                                                    , show $ length remainder
-                                                    , ")"
-                                                    ]
-           | otherwise                  -> sequence parts
-  where
-    slice (thisOffset, insts) el =
-      let offset' = el^.offset + fromIntegral (el^.size)
-          (before, after) = span ((< offset') . fst) insts
-      in (,) (offset', after)
-             -- Match previous function end and the new start
-           $ if thisOffset /= el^.offset
-               then Left $ mconcat
-                             [ "Function start/end mismatch in function \""
-                             , show $ el^.name
-                             , "\": Expected offset "
-                             , show $ el^.offset
-                             , ", but got "
-                             , show thisOffset
-                             ]
-               else Right (el, remark <$> before)
+coherentHead :: Vector CodeFunction -> (CodeFunction, Either String ())
+coherentHead vec =
+  let cf = vec Vec.! 0
+  in ( cf
+     , case vec Vec.!? 1 of
+         Nothing   -> Right ()
+         Just next
+           | fromIntegral (cfSize cf) + cfOffset cf == cfOffset next -> Right ()
+           | otherwise -> Left $ mconcat
+                                   [ "Boundary mismatch (", show $ cfSize cf, " + "
+                                   , show $ cfOffset cf, " /= ", show $ cfOffset next, ")"
+                                   ]
+     )
 
-    remark (a, b) = a :@ b
 
 
 -- | Parses 'Code' into a set of instructions.
 --
 --   Fails if:
---    
+--
 --     * Bytecode is not 0xF;
 --
 --     * Functions overlap or there are any spare instructions left.
-rawInstructions :: Code -> Either [Char] [(CodeFunction, [Marked (Raw Instruction)])]
-rawInstructions = transformInstructions $ Right . fmap unkey
+rawInstructions
+  :: Code
+  -> [(CodeFunction, Either [Char] [Marked (Raw Instruction)])]
+rawInstructions (Code baseoff (CodeOps bs) els) = row (Vec.length els) els bs 0
+  where
+    row n elems input off
+      | n <= 0    = []
+      | otherwise =
+          let (cf, matching) = coherentHead elems
+          in case matching of
+               Left err -> [(cf, Left err)]
+               Right () ->
+                 case runGetOrFail (getRawInstructions (baseoff + off) . fromIntegral $ cf^.size) input of
+                   Left  (_   , _   , err) -> [(cf, Left err)]
+                   Right (rest, off', val) -> (cf, Right val) : row (n - 1) (Vec.tail elems) rest (off + fromIntegral off')
+
+
+-- | Evaluates a list of 'CodeFunction's paired with 'Either' values
+--   while lazily returning their names and positions.
+--
+--   Used to modify 'instructions' and "GameMaker.RiskOfRain.Decompilation.expressions" to behave
+--   the same way "GameMaker.RiskOfRain.Unpacking.decodeForm" and 'rawInstructions' do.
+extort :: [(CodeFunction, Either a c)] -> ([(Int, BS.ByteString)], Either a [(CodeFunction, c)])
+extort [] = ([], Right [])
+extort as = loop 1 as
+  where
+    loop n ((a, r):rest) =
+      first ((:) (n, a^.name)) $
+        case r of
+          Right val -> second (fmap $ (:) (a, val)) $ loop (n + 1) rest
+          Left err -> ([], Left err)
+
+    loop _ [] = ([], Right [])
 
 
 
@@ -459,8 +531,7 @@ nameMap
      , HasAddress a b
      , Integral b
      , HasOccurences a c
-     , HasName a d
-     , HasUnPointer d BS.ByteString
+     , HasName a BS.ByteString
      )
   => s -> IMS.IntMap (c, BS.ByteString)
 nameMap container =
@@ -468,7 +539,7 @@ nameMap container =
     . fmap (\(n, v) -> (n - 16, v))
     . filter (\(n, _) -> n > 0)
     $ container^..each.to
-        (\a -> (fromIntegral $ a^.address,(a^.occurences, a^.name.unPointer)))
+        (\a -> (fromIntegral $ a^.address,(a^.occurences, a^.name)))
 
 
 
@@ -476,15 +547,17 @@ nameMap container =
 cycleMap
   :: ( Ord a
      , Num a
+     , Show a
      )
-  => IMS.IntMap (a, BS.ByteString)
+  => String
+  -> IMS.IntMap (a, BS.ByteString)
   -> Int
   -> Reference Word23
   -> (IMS.IntMap (a, BS.ByteString), Either [Char] (Reference BS.ByteString))
-cycleMap nmap pos (Reference ref val) =
+cycleMap qual nmap pos (Reference ref val) =
   case IMS.lookup (fromIntegral pos) nmap of
     Nothing ->
-      (nmap, Left $ "Could not find element occurring at position " <> show pos)
+      (nmap, Left $ "Could not find " <> qual <> " occurring at position " <> show pos)
 
     Just (occs, nam) ->
       ( nmap & IMS.delete pos . if occs > 1
@@ -492,34 +565,19 @@ cycleMap nmap pos (Reference ref val) =
                                   else id
       , Right $ Reference nam val
       )
- 
+
 
 
 -- | Helper type for coherence.
 type TransformS = (IMS.IntMap (Int32, BS.ByteString), IMS.IntMap (Word32, BS.ByteString))
 
--- | Parses 'Code' into a set of instructions while also using 'Vari', 'Func' and 'Strg'
---   chunks to supply variable, function and string names respectively.
---
---   Fails if:
---    
---     * Bytecode is not 0xF;
---
---     * Functions overlap or there are any spare instructions left;
---
---     * Any reference cannot be found in its matching chunk.
---
---   Absence of 'Code', 'Vari' and 'Func' chunks does not fail, producing an empty array instead.
-instructions :: Form -> Either [Char] [(CodeFunction, [Marked (Cooked Instruction)])]
-instructions form =
-  case (form^.code, form^.vari, form^.func) of
-    (Nothing, Nothing, Nothing) -> Right []
-    (Just code', Just vari', Just func') ->
-      let transformS :: TransformS
-          transformS = (nameMap $ vari'^.elements, nameMap $ func'^.positions)
-
-      in transformInstructions (sequence . snd . mapAccumL transform transformS) code'
-    (_, _, _) -> Left $ "Expected either none or all of CODE, VARI and FUNC chunks to be there"
+instruction
+  :: Form
+  -> TransformS
+  -> [Marked (Raw Instruction)]
+  -> Either [Char] (TransformS, [Marked (Cooked Instruction)])
+instruction form transformS raw =
+  traverse sequence $ mapAccumL (\s (a :@ b) -> fmap ((:@) a) <$> transform s (a :@ b)) transformS raw
   where
     transform
       :: TransformS
@@ -583,8 +641,8 @@ instructions form =
 
     cookStrg :: Word32 -> Either [Char] BS.ByteString
     cookStrg s =
-      case form^?strg.unStrg.unDictionary.ix (fromIntegral s).unStrgString of
-        Nothing     -> Left $ "Could not find string " <> show s
+      case form^?strg.ix (fromIntegral s) of
+        Nothing     -> Left $ "Could not find string under index" <> show s
         Just string -> Right string
 
     cookVari
@@ -593,7 +651,7 @@ instructions form =
       -> Reference Word23
       -> (TransformS, Either [Char] (Reference BS.ByteString))
     cookVari (varis, funcs) pos ref =
-      let (varis', res) = cycleMap varis pos ref
+      let (varis', res) = cycleMap "variable" varis pos ref
       in (,) (varis', funcs) res
 
     cookFunc
@@ -602,5 +660,41 @@ instructions form =
       -> Reference Word23
       -> (TransformS, Either [Char] (Reference BS.ByteString))
     cookFunc (varis, funcs) pos ref =
-      let (funcs', res) = cycleMap funcs pos ref
+      let (funcs', res) = cycleMap "function" funcs pos ref
       in (,) (varis, funcs') res
+
+
+-- | Parses 'Code' into a set of instructions while also using 'Vari', 'Func' and 'Strg'
+--   chunks to supply variable, function and string names respectively.
+--
+--   Fails if:
+--
+--     * Bytecode is not 0xF;
+--
+--     * Functions overlap or there are any spare instructions left;
+--
+--     * Any reference cannot be found in its matching chunk.
+instructions
+  :: Form
+  -> Code
+  -> Vari
+  -> Func
+  -> [(CodeFunction, Either [Char] [Marked (Cooked Instruction)])]
+instructions form cod var fun =
+  let transformS :: TransformS
+      transformS = (nameMap $ var^.elements, nameMap $ fun^.positions)
+
+      f s (cf, ei) = case ei of
+                       Left err  -> (s, (cf, Left err))
+                       Right val ->
+                         case instruction form s val of
+                           Left err           -> (s , (cf, Left err    ))
+                           Right (s', cooked) -> (s', (cf, Right cooked))
+
+  in snd $ mapAccumL f transformS $ rawInstructions cod
+
+
+
+-- | Total number of functions within the 'Code' chunk.
+totalFunctions :: Code -> Int
+totalFunctions = Vec.length . flip (^.) elements

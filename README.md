@@ -41,11 +41,9 @@ Q: Why is this in a separate package and not inside a game build?
 
 A: Because I feel like it makes for a nice little unit by itself, so even though
    it is practically useless outside of a game build, it can still exist as a separate
-   package. Seeing how I've been experimenting with making a game for the past two years
-   and it has been a wild mess of me learning [reflex](http://hackage.haskell.org/package/reflex)
-   and getting into the absolute bowels of Haskell with all the type-level stuff,
-   I'm not even sure I'll make a working videogame ever, so perhaps someone can use this
-   to figure out how to unpack a different game.
+   package. Seeing how I've been experimenting with making a game for the past ~~two years~~
+   eternity, I'm not even sure I'll make a working videogame ever,
+   so perhaps someone can use this to figure out how to unpack a different game.
 
 
 

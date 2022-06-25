@@ -1,4 +1,5 @@
-{-# LANGUAGE DefaultSignatures
+{-# LANGUAGE BangPatterns
+           , DefaultSignatures
            , DeriveGeneric
            , FlexibleContexts
            , FlexibleInstances
@@ -11,6 +12,7 @@
 module GameMaker.RiskOfRain.Unpacking.Unpack where
 
 import           Control.Applicative
+import           Control.DeepSeq
 import           Control.Monad
 import           Data.Bits
 import           Data.Bool (bool)
@@ -24,9 +26,11 @@ import           Data.Int
 import qualified Data.Set as S
 import           Data.Time.Clock
 import           Data.Time.Clock.System
+import           Data.Vector (Vector)
+import qualified Data.Vector as Vec
 import           Data.Word
 import           GHC.Generics
-import           Lens.Micro hiding (to)
+import           Lens.Micro.Platform hiding (to)
 import           Lens.Micro.Internal
 import           Numeric
 import           Prelude
@@ -55,6 +59,13 @@ pinpoint size =
           through (siz - chunkSize - 8)
 
 
+
+extChunk :: BS.ByteString -> Get Word32
+extChunk name = do
+  name' <- getByteString 4
+  if name /= name'
+    then fail $ "Header name does not match: " <> show name <> " /= " <> show name'
+    else getWord32le
 
 -- | Consumes an IFF chunk, isolating the chunk contents.
 chunk :: BS.ByteString -> (Word32 -> Get a) -> Get a
@@ -146,11 +157,14 @@ instance Unpack a => GUnpack (K1 i a) where
 
 
 -- | Just a wrapper so we know we want to decode a 'PNG' file and not some other image.
-newtype PNG = PNG { pNGUnPNG :: BS.ByteString }
+newtype PNG = PNG { unPNG :: BS.ByteString }
               deriving Eq
 
 instance Show PNG where
   show _ = "PNG"
+
+instance NFData PNG where
+  rnf (PNG png) = rnf png
 
 instance Unpack PNG where
   unpack _ = do
@@ -184,8 +198,11 @@ instance Unpack PNG where
 
 
 -- | An address within a file. These are pointing from the dead start of the file.
-newtype Pointer a = Pointer { pointerUnPointer :: a }
+newtype Pointer a = Pointer { unPointer :: a }
                     deriving (Show, Eq)
+
+instance NFData a => NFData (Pointer a) where
+  rnf (Pointer a) = rnf a
 
 instance Unpack a => Unpack (Pointer a) where
   unpack form = do
@@ -209,7 +226,7 @@ instance Unpack a => Unpack (Pointer a) where
 --   Note: this doesn't use 'isolate' because we can't know the size of the last element
 --         from pointers alone, otherwise it'd fail miserably in data structures with
 --         two 'Dictionary's in them
-newtype Dictionary a = Dictionary { dictionaryUnDictionary :: [a] }
+newtype Dictionary a = Dictionary { unDictionary :: Vector a }
                        deriving (Show, Eq, Foldable)
 
 type instance IxValue (Dictionary a) = a
@@ -217,16 +234,19 @@ type instance IxValue (Dictionary a) = a
 type instance Index (Dictionary a) = Int
 
 instance Each (Dictionary a) (Dictionary b) a b where
-  each f = fmap Dictionary . each f . dictionaryUnDictionary
+  each f = fmap Dictionary . each f . unDictionary
 
 instance Ixed (Dictionary a) where
-  ix k f = fmap Dictionary . ix k f . dictionaryUnDictionary
+  ix k f = fmap Dictionary . ix k f . unDictionary
+
+instance NFData a => NFData (Dictionary a) where
+  rnf (Dictionary vec) = rnf vec
 
 instance Unpack a => Unpack (Dictionary a) where
   unpack form = do
     size <- getWord32le
-    _ptrs <- replicateM (fromIntegral size) getWord32le
-    Dictionary <$> replicateM (fromIntegral size) (unpack form)
+    _ptrs <- Vec.replicateM (fromIntegral size) getWord32le
+    Dictionary <$> Vec.replicateM (fromIntegral size) (unpack form)
 
 
 
@@ -235,7 +255,7 @@ instance Unpack a => Unpack (Dictionary a) where
 --
 --   This is made specifically for the 'SPRT' chunk, because every single element
 --   of that one seems to end with random amounts of garbage.
-newtype DictionaryS a = DictionaryS { dictionarySUnDictionaryS :: [a] }
+newtype DictionaryS a = DictionaryS { unDictionaryS :: Vector a }
                         deriving (Show, Eq, Foldable)
 
 type instance IxValue (DictionaryS a) = a
@@ -243,12 +263,13 @@ type instance IxValue (DictionaryS a) = a
 type instance Index (DictionaryS a) = Int
 
 instance Each (DictionaryS a) (DictionaryS b) a b where
-  each f = fmap DictionaryS . each f . dictionarySUnDictionaryS
+  each f = fmap DictionaryS . each f . unDictionaryS
 
 instance Ixed (DictionaryS a) where
-  ix k f = fmap DictionaryS . ix k f . dictionarySUnDictionaryS
+  ix k f = fmap DictionaryS . ix k f . unDictionaryS
 
-
+instance NFData a => NFData (DictionaryS a) where
+  rnf (DictionaryS vec) = rnf vec
 
 instance Unpack a => Unpack (DictionaryS a) where
   unpack form = do
@@ -259,7 +280,7 @@ instance Unpack a => Unpack (DictionaryS a) where
         sizes = tail diff <> [Nothing]
                 -- The first element is always zero, so it's removed and
                 -- "parse all remaining input" is added as the last element size
-    DictionaryS <$> do
+    DictionaryS . Vec.fromList <$> do
       forM sizes $ \s ->
         case s of
           Just s' -> isolate (fromIntegral s') $ unpack form
@@ -286,8 +307,14 @@ data InfoFlag = Fullscreen
               | BorderlessWindow
                 deriving (Show, Eq, Ord)
 
-newtype InfoFlags = InfoFlags { infoFlagsUnInfoFlags :: S.Set InfoFlag }
+instance NFData InfoFlag where
+  rnf !_ = ()
+
+newtype InfoFlags = InfoFlags { unInfoFlags :: S.Set InfoFlag }
                     deriving (Show, Eq)
+
+instance NFData InfoFlags where
+  rnf (InfoFlags st) = rnf st
 
 instance Unpack InfoFlags where
   unpack _ = do
@@ -318,6 +345,9 @@ instance Unpack InfoFlags where
 newtype CRC32 = CRC32 Word32
                 deriving (Show, Eq)
 
+instance NFData CRC32 where
+  rnf (CRC32 crc) = rnf crc
+
 instance Unpack CRC32 where
   unpack _ =
     CRC32
@@ -327,6 +357,9 @@ instance Unpack CRC32 where
 
 data MD5 = MD5 Word32 Word32 Word32 Word32
            deriving (Show, Eq)
+
+instance NFData MD5 where
+  rnf (MD5 a b c d) = rnf (a, b, c, d)
 
 instance Unpack MD5 where
   unpack _ = do
@@ -340,6 +373,9 @@ instance Unpack MD5 where
 
 data RGBA = RGBA Word8 Word8 Word8 Word8
             deriving (Generic, Eq)
+
+instance NFData RGBA where
+  rnf (RGBA r g b a) = rnf (r, g, b, a)
 
 instance Show RGBA where
   show (RGBA r g b a) =
@@ -356,8 +392,14 @@ data RoomEntryFlag = EnableViews
                    | ClearDisplayBuffer
                      deriving (Show, Eq, Ord)
 
-newtype RoomEntryFlags = RoomEntryFlags { roomEntryFlagsUnRoomEntryFlags :: S.Set RoomEntryFlag }
+instance NFData RoomEntryFlag where
+  rnf !_ = ()
+
+newtype RoomEntryFlags = RoomEntryFlags { unRoomEntryFlags :: S.Set RoomEntryFlag }
                          deriving (Show, Eq)
+
+instance NFData RoomEntryFlags where
+  rnf (RoomEntryFlags st) = rnf st
 
 instance Unpack RoomEntryFlags where
    unpack _ = do
@@ -379,8 +421,14 @@ data SoundEntryFlag = Embedded
                     | Regular
                       deriving (Show, Eq, Ord)
 
-newtype SoundEntryFlags = SoundEntryFlags { soundEntryFlagsUnSoundEntryFlags :: S.Set SoundEntryFlag }
+instance NFData SoundEntryFlag where
+  rnf !_ = ()
+
+newtype SoundEntryFlags = SoundEntryFlags { unSoundEntryFlags :: S.Set SoundEntryFlag }
                           deriving (Show, Eq)
+
+instance NFData SoundEntryFlags where
+  rnf (SoundEntryFlags st) = rnf st
 
 instance Unpack SoundEntryFlags where
    unpack _ = do

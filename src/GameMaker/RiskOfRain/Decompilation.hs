@@ -17,7 +17,11 @@
         absolutely unoptimized, so decompilation is just straightforward parsing.
  -}
 
-{-# LANGUAGE DeriveFunctor
+{-# LANGUAGE BangPatterns
+           , DeriveAnyClass
+           , DeriveFunctor
+           , DeriveGeneric
+           , DerivingStrategies
            , DerivingVia
            , FlexibleInstances
            , FunctionalDependencies
@@ -51,21 +55,18 @@ module GameMaker.RiskOfRain.Decompilation
     -- * Conversions
   , expressions
   , simpleExpressions
-  , lookupVari
-  , lookupFunc
     -- * Helper functions
   , unparsed
   , pprint
   ) where
 
-import           Data.Key
 import           GameMaker.RiskOfRain.Lens hiding (x, y, name, code)
 import qualified GameMaker.RiskOfRain.Decompilation.Raw as Raw
 import           GameMaker.RiskOfRain.Decompilation.Raw hiding (Comparison, Call, Normal, Break, Exit)
 import           GameMaker.RiskOfRain.Unpacking
 
 import           Control.Applicative
-import           Control.Monad ((>=>), guard)
+import           Control.DeepSeq
 import           Data.ByteString.Builder
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
@@ -78,6 +79,7 @@ import           Data.Semigroup (stimes)
 import qualified Data.Sequence as S
 import           Data.Sequence ( Seq (..) )
 import           Data.String (IsString)
+import           GHC.Generics (Generic)
 import           Lens.Micro
 import           Numeric (showFFloat)
 import           Prelude
@@ -86,9 +88,9 @@ import           Prelude
 
 -- | Wrapper for @[Char]@ so we don't orphan @'MonadFail' ('Either' '[Char]')@.
 newtype Stringlike = Stringlike [Char]
-                     deriving (Semigroup, Monoid, IsString)
+                     deriving newtype (Semigroup, Monoid, IsString)
 
-instance Alternative (Either Stringlike) where
+instance {-# OVERLAPS #-} Alternative (Either Stringlike) where
     empty = Left ""
 
     Left _ <|> n = n
@@ -169,7 +171,7 @@ subindent pp n = foldMap $ cprint pp { indent = indent pp + n }
 -- | Array dimensions. GameMaker only supports 1D and 2D arrays.
 data Dimensions = OneDim (Marked Assignable)
                 | TwoDim (Marked Assignable) (Marked Assignable)
-                  deriving (Show, Eq)
+                  deriving (Show, Eq, Generic, NFData)
 
 instance CPrint Dimensions where
   cprint pp =
@@ -184,7 +186,7 @@ data Constant = ConstDouble Double
               | ConstInt32 Int32
               | ConstInt16 Int16
               | ConstString BS.ByteString
-                deriving (Show, Eq)
+                deriving (Show, Eq, Generic, NFData)
 
 instance CPrint Constant where
   cprint _ =
@@ -200,7 +202,7 @@ instance CPrint Constant where
 data Varied = VarNormal Instance Variable BS.ByteString
             | VarInstanced (Marked Assignable) BS.ByteString
             | VarArray (Marked Dimensions) (Marked Assignable) BS.ByteString
-              deriving (Show, Eq)
+              deriving (Show, Eq, Generic, NFData)
 
 instance CPrint Varied where
   cprint pp =
@@ -215,7 +217,7 @@ instance CPrint Varied where
 -- | Anything pushable on the stack.
 data Value = Constant Constant
            | Varied Varied
-             deriving (Show, Eq)
+             deriving (Show, Eq, Generic, NFData)
 
 instance CPrint Value where
   cprint pp =
@@ -236,7 +238,7 @@ data Binary = (:*)
             | (:^)
             | (:<<)
             | (:>>)
-              deriving (Show, Eq)
+              deriving (Show, Eq, Generic, NFData)
 
 -- | Any expression that yields anything assignable. This is basically r-value.
 data Assignable = Value      (Marked Value)
@@ -248,7 +250,7 @@ data Assignable = Value      (Marked Value)
                 | Modulo     TypePair (Marked Assignable) (Marked Assignable)
                 | Binary     Binary TypePair (Marked Assignable) (Marked Assignable)
                 | Callable   BS.ByteString [Marked Assignable]
-                  deriving (Show, Eq)
+                  deriving (Show, Eq, Generic, NFData)
 
 instance CPrint Assignable where
   cprint pp =
@@ -293,7 +295,7 @@ instance CPrint Assignable where
 data Comparable = Comparable Raw.Comparison (Marked Assignable) (Marked Assignable)
                 | Boolean (Marked Assignable)
                 | (:!)    (Marked Assignable)
-                  deriving (Show, Eq)
+                  deriving (Show, Eq, Generic, NFData)
 
 instance CPrint Comparable where
   cprint pp =
@@ -317,7 +319,7 @@ instance CPrint Comparable where
 data Comparison = Comparison TypePair Comparable
                 | (:&&) [Marked Comparison]
                 | (:||) [Marked Comparison]
-                   deriving (Show, Eq)
+                   deriving (Show, Eq, Generic, NFData)
 
 isAnd :: Comparison -> Bool
 isAnd ((:&&) _) = True
@@ -353,7 +355,7 @@ instance CPrint Comparison where
 
 -- | Writing a variable to memory.
 data Assignment = Assignment TypePair (Marked Varied) (Marked Assignable)
-                  deriving (Show, Eq)
+                  deriving (Show, Eq, Generic, NFData)
 
 instance CPrint Assignment where
   cprint pp (Assignment _ (_ :@ lvalue) (_ :@ rvalue)) =
@@ -386,7 +388,7 @@ instance CPrint Assignment where
 
 -- | A single entry of a 'Switch' case.
 data Case' a = Case a Expr Bool
-               deriving (Show, Eq, Functor)
+               deriving (Show, Eq, Functor, Generic, NFData)
 
 type Case = Case' (Marked Assignable)
 
@@ -434,7 +436,7 @@ data Expression = Assign  Assignment
                 | Exit
                 | Unparsed (Cooked Instruction)
                 | UnparsedLoop Expr
-                  deriving (Show, Eq)
+                  deriving (Show, Eq, Generic, NFData)
 
 type Expr = Seq (Marked Expression)
 
@@ -1584,26 +1586,29 @@ finaleI ds = exprX ds S.empty . deloop
 
 
 
--- | Decompiles the 'Code' chunk of the 'Form'.
-expressions :: Form -> Either [Char] [(CodeFunction, Expr)]
-expressions =
-  instructions >=>
-    unwrapStringlike .
-      sequence . do
-        fmap $ \(el, inst) ->
-          (,) el <$> finaleX el (S.fromList inst)
+-- | Decompiles the 'Code' chunk of the 'Form' into readable 'CodeFunction's together
+--   with matching 'Expr's.
+--
+--   'extort' should be used to extract the result in a lazy fashion; all the caveats of
+--   'instructions' apply.
+expressions :: Form -> Code -> Vari -> Func -> [(CodeFunction, Either [Char] Expr)]
+expressions form cod var fun =
+  flip fmap (instructions form cod var fun) $ \(cf, ei) ->
+         (,) cf $ do
+           i <- ei
+           unwrapStringlike $ finaleX cf (S.fromList i)
 
 
 
 -- | A version of 'expressions' that doesn't split the branches up so all of the jumps are left
 --   'Unparsed'.
-simpleExpressions :: Form -> Either [Char] [(CodeFunction, Expr)]
-simpleExpressions =
-  instructions >=>
-    unwrapStringlike .
-      sequence . do
-        fmap $ \(el, inst) ->
-          Right . (,) el . simpleX (decompS el) $ S.fromList inst
+simpleExpressions :: Form -> Code -> Vari -> Func -> [(CodeFunction, Either [Char] Expr)]
+simpleExpressions form cod var fun =
+  flip fmap (instructions form cod var fun) $ \(cf, ei) ->
+         (,) cf $ do
+           i <- ei
+           Right $ simpleX (decompS cf) (S.fromList i)
+
 
 
 -- | Helper function that outputs identifiers of functions with unparsed elements in the
@@ -1639,232 +1644,3 @@ pprint (el, expr) =
       fold .
         flip fmap expr $ \ex ->
           cprint (cprinter el) ex
-
-
-
--- | Lookup of variable names inside things.
-class LookupVari a where
-  lookupVari :: (BS.ByteString -> Bool) -> a -> [Marked BS.ByteString]
-
-instance LookupVari Dimensions where
-  lookupVari f =
-    \case
-       OneDim (_ :@ a)          -> lookupVari f a
-       TwoDim (_ :@ a) (_ :@ b) -> lookupVari f a <> lookupVari f b
-
-instance LookupVari (Marked Varied) where
-  lookupVari f =
-    \case
-       n :@ VarNormal _ _ name              -> n :@ name <$ guard (f name)
-       n :@ VarInstanced (_ :@ i) name      -> mconcat
-                                                 [ lookupVari f i
-                                                 , n :@ name <$ guard (f name)
-                                                 ]
-       n :@ VarArray (_ :@ d) (_ :@ i) name -> mconcat
-                                                 [ lookupVari f d
-                                                 , lookupVari f i
-                                                 , n :@ name <$ guard (f name)
-                                                 ]
-
-
-instance LookupVari (Marked Value) where
-  lookupVari f =
-    \case
-       _ :@ Constant _ -> empty
-       n :@ Varied v   -> lookupVari f $ n :@ v
-
-instance LookupVari Assignable where
-  lookupVari f =
-    \case
-       Value      v                   -> lookupVari f v
-       Compared   _ c                 -> lookupVari f c
-       Cast       _ (_ :@ a)          -> lookupVari f a
-       Negate     _ (_ :@ a)          -> lookupVari f a
-       Complement _ (_ :@ a)          -> lookupVari f a
-       Remainder  _ (_ :@ a) (_ :@ b) -> lookupVari f a <> lookupVari f b
-       Modulo     _ (_ :@ a) (_ :@ b) -> lookupVari f a <> lookupVari f b
-       Binary   _ _ (_ :@ a) (_ :@ b) -> lookupVari f a <> lookupVari f b
-       Callable   _ as  -> foldMap (lookupVari f . unkey) as
-
-instance LookupVari Comparable where
-  lookupVari f =
-    \case
-       Comparable _ (_ :@ a) (_ :@ b) -> lookupVari f a <> lookupVari f b
-       Boolean      (_ :@ a)          -> lookupVari f a
-       (:!)         (_ :@ a)          -> lookupVari f a
-
-instance LookupVari Comparison where
-  lookupVari f =
-    \case
-       Comparison _ c -> lookupVari f c
-       (:&&) cs       -> foldMap (lookupVari f . unkey) cs
-       (:||) cs       -> foldMap (lookupVari f . unkey) cs
-
-instance LookupVari Assignment where
-  lookupVari f (Assignment _ v (_ :@ a)) =
-    lookupVari f v <> lookupVari f a
-
-instance LookupVari Case where
-  lookupVari f (Case (_ :@ a) e _) =
-    lookupVari f a <> foldMap (lookupVari f . unkey) e
-
-instance LookupVari DefaultCase where
-  lookupVari f (DefaultCase e _) = foldMap (lookupVari f . unkey) e
-
-instance LookupVari Expression where
-  lookupVari f =
-    \case
-       Assign  a           -> lookupVari f a
-       Call    _ as        -> foldMap (lookupVari f . unkey) as
-       Return  (_ :@ a)    -> lookupVari f a
-       Compare _ c         -> lookupVari f c
-       For ma (_ :@ c) b e -> mconcat
-                                [ lookupVari f ma
-                                , lookupVari f c
-                                , lookupVari f b
-                                , foldMap (lookupVari f . unkey) e
-                                ]
-       ForDec (_ :@ a) e   -> mconcat
-                                [ lookupVari f a
-                                , foldMap (lookupVari f . unkey) e
-                                ]
-       Repeat _ e          -> foldMap (lookupVari f . unkey) e
-       If    (_ :@ c) e me -> mconcat
-                                [ lookupVari f c
-                                , foldMap (lookupVari f . unkey) e
-                                , foldMap (foldMap (lookupVari f . unkey)) me
-                                ]
-       While (_ :@ c) e    -> mconcat
-                                [ lookupVari f c
-                                , foldMap (lookupVari f . unkey) e
-                                ]
-       Do    (_ :@ c) e    -> mconcat
-                                [ lookupVari f c
-                                , foldMap (lookupVari f . unkey) e
-                                ]
-       Switch (_ :@ a) c d -> mconcat
-                                [ lookupVari f a
-                                , foldMap (lookupVari f) c
-                                , foldMap (lookupVari f) d
-                                ]
-       With (_ :@ a) e     -> mconcat
-                                [ lookupVari f a
-                                , foldMap (lookupVari f . unkey) e
-                                ]
-       _ -> []
-
-
-
--- | Lookup of function names inside things.
-class LookupFunc a where
-  lookupFunc :: (BS.ByteString -> Bool) -> a -> [Marked BS.ByteString]
-
-instance LookupFunc Dimensions where
-  lookupFunc f =
-    \case
-       OneDim a   -> lookupFunc f a
-       TwoDim a b -> lookupFunc f a <> lookupFunc f b
-
-instance LookupFunc Varied where
-  lookupFunc f =
-    \case
-       VarNormal _ _ _       -> []
-       VarInstanced i _      -> mconcat
-                                  [ lookupFunc f i
-                                  ]
-       VarArray (_ :@ d) i _ -> mconcat
-                                  [ lookupFunc f d
-                                  , lookupFunc f i
-                                  ]
-
-instance LookupFunc Value where
-  lookupFunc f =
-    \case
-       Constant _ -> empty
-       Varied v   -> lookupFunc f v
-
-instance LookupFunc (Marked Assignable) where
-  lookupFunc f =
-    \case
-       _ :@ Value     (_ :@ v) -> lookupFunc f v
-       _ :@ Compared   _ c     -> lookupFunc f c
-       _ :@ Cast       _ a     -> lookupFunc f a
-       _ :@ Negate     _ a     -> lookupFunc f a
-       _ :@ Complement _ a     -> lookupFunc f a
-       _ :@ Remainder  _ a b   -> lookupFunc f a <> lookupFunc f b
-       _ :@ Modulo     _ a b   -> lookupFunc f a <> lookupFunc f b
-       _ :@ Binary   _ _ a b   -> lookupFunc f a <> lookupFunc f b
-       n :@ Callable name as   -> mconcat
-                                   [ n :@ name <$ guard (f name)
-                                   , foldMap (lookupFunc f) as
-                                   ]
-
-instance LookupFunc Comparable where
-  lookupFunc f =
-    \case
-       Comparable _ a b -> lookupFunc f a <> lookupFunc f b
-       Boolean      a   -> lookupFunc f a
-       (:!)         a   -> lookupFunc f a
-
-instance LookupFunc Comparison where
-  lookupFunc f =
-    \case
-       Comparison _ c -> lookupFunc f c
-       (:&&) cs       -> foldMap (lookupFunc f . unkey) cs
-       (:||) cs       -> foldMap (lookupFunc f . unkey) cs
-
-instance LookupFunc Assignment where
-  lookupFunc f (Assignment _ (_ :@ v) a) =
-    lookupFunc f v <> lookupFunc f a
-
-instance LookupFunc Case where
-  lookupFunc f (Case a e _) =
-    lookupFunc f a <> foldMap (lookupFunc f) e
-
-instance LookupFunc DefaultCase where
-  lookupFunc f (DefaultCase e _) = foldMap (lookupFunc f) e
-
-instance LookupFunc (Marked Expression) where
-  lookupFunc f =
-    \case
-       _ :@ Assign  a           -> lookupFunc f a
-       n :@ Call    name as     -> mconcat
-                                     [ n :@ name <$ guard (f name)
-                                     , foldMap (lookupFunc f) as
-                                     ]
-       _ :@ Return  a           -> lookupFunc f a
-       _ :@ Compare _ c         -> lookupFunc f c
-       _ :@ For ma (_ :@ c) b e -> mconcat
-                                     [ lookupFunc f ma
-                                     , lookupFunc f c
-                                     , lookupFunc f b
-                                     , foldMap (lookupFunc f) e
-                                     ]
-       _ :@ ForDec a e          -> mconcat
-                                     [ lookupFunc f a
-                                     , foldMap (lookupFunc f) e
-                                     ]
-       _ :@ Repeat _ e          -> foldMap (lookupFunc f) e
-       _ :@ If    (_ :@ c) e me -> mconcat
-                                     [ lookupFunc f c
-                                     , foldMap (lookupFunc f) e
-                                     , foldMap (foldMap (lookupFunc f)) me
-                                     ]
-       _ :@ While (_ :@ c) e    -> mconcat
-                                     [ lookupFunc f c
-                                     , foldMap (lookupFunc f) e
-                                     ]
-       _ :@ Do    (_ :@ c) e    -> mconcat
-                                     [ lookupFunc f c
-                                     , foldMap (lookupFunc f) e
-                                     ]
-       _ :@ Switch a c d        -> mconcat
-                                     [ lookupFunc f a
-                                     , foldMap (lookupFunc f) c
-                                     , foldMap (lookupFunc f) d
-                                     ]
-       _ :@ With a e            -> mconcat
-                                     [ lookupFunc f a
-                                     , foldMap (lookupFunc f) e
-                                     ]
-       _                        -> []
