@@ -41,7 +41,7 @@ import           Control.Applicative
 import           Control.DeepSeq
 import           Data.Bifunctor
 import           Data.Binary.Get
-import           Data.Bits
+import           Data.Bits hiding (And (..), Xor (..))
 import qualified Data.ByteString.Char8 as BS
 import           Data.Function (on)
 import           Data.Int
