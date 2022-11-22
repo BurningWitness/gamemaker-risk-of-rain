@@ -1,0 +1,5 @@
+packages: .
+source-repository-package
+  type: git
+  location: https://github.com/BurningWitness/microlens-labels.git
+  tag: 61a3029f03cd55d7d151e79181dc9243f8a31a98
