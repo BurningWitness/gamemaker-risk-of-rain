@@ -18,11 +18,13 @@
  -}
 
 {-# LANGUAGE BangPatterns
+           , DataKinds
            , DeriveAnyClass
            , DeriveFunctor
            , DeriveGeneric
            , DerivingStrategies
            , DerivingVia
+           , DuplicateRecordFields
            , FlexibleInstances
            , FunctionalDependencies
            , GeneralizedNewtypeDeriving
@@ -31,6 +33,8 @@
            , OverloadedStrings
            , PatternSynonyms
            , StandaloneDeriving
+           , TemplateHaskell
+           , TypeApplications
            , TypeOperators
            , ViewPatterns #-}
 
@@ -71,7 +75,7 @@ import           Data.ByteString.Builder
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import           Data.Coerce
-import           Data.Foldable (fold)
+import           Data.Foldable (asum, fold)
 import           Data.List (intersperse)
 import           Data.Int
 import           Data.Maybe (catMaybes, fromMaybe, isJust)
@@ -81,6 +85,7 @@ import           Data.Sequence ( Seq (..) )
 import           Data.String (IsString)
 import           GHC.Generics (Generic)
 import           Lens.Micro
+import           Lens.Micro.Labels.TH
 import           Numeric (showFFloat)
 import           Prelude
 
@@ -118,6 +123,8 @@ data CPrinter = CPrinter
                   }
                 deriving Show
 
+makeLabels ''CPrinter
+
 -- | Simple text printer for outputting 'Expression's.
 class CPrint a where
   cprint :: CPrinter -> a -> Builder
@@ -137,8 +144,8 @@ numbered :: CPrinter -> Int -> Builder -> Builder
 numbered pp n a =
   mconcat
     [ intDec n
-    , mtimes (fromIntegral $ numOffset pp - length (show n) + 1) " "
-    , mtimes (indent pp) " "
+    , mtimes (pp ^. #numOffset . to fromIntegral - length (show n) + 1) " "
+    , mtimes (pp ^. #indent) " "
     , a
     ]
 
@@ -146,8 +153,8 @@ numbered pp n a =
 indented :: CPrinter -> Int -> Builder -> Builder
 indented pp n a =
   mconcat
-    [ mtimes (fromIntegral $ numOffset pp + 1) " "
-    , mtimes (indent pp + n) " "
+    [ mtimes (pp ^. #numOffset . to fromIntegral + 1) " "
+    , mtimes (pp ^. #indent + n) " "
     , a
     ]
 
@@ -164,7 +171,7 @@ wrapped pp n els
 
 -- | Outputs nested 'CPrint'able elements at an additional indent.
 subindent :: (CPrint a, Foldable f) => CPrinter -> Int -> f a -> Builder
-subindent pp n = foldMap $ cprint pp { indent = indent pp + n }
+subindent pp n = foldMap $ cprint pp { indent = pp ^. #indent + n }
 
 
 
@@ -255,7 +262,7 @@ data Assignable = Value      (Marked Value)
 instance CPrint Assignable where
   cprint pp =
     let roundBr pp' f =
-          if isOuter pp'
+          if pp' ^. #isOuter
             then        f pp' { isOuter = False }       
             else "(" <> f pp'                     <> ")"
 
@@ -343,7 +350,7 @@ instance CPrint Comparison where
             then cprint ppInner x <> val <> mintercalate f val xs
             else cprint ppOuter x <> val <> mintercalate f val xs
 
-    in do \a -> if isOuter pp
+    in do \a -> if pp ^. #isOuter
                   then a
                   else "(" <> a <> ")"
         . \case
@@ -648,14 +655,16 @@ backpoints (n :@ j) =
 -- | Decompilation state.
 data DecompS =
        DecompS
-         { dsFunction   :: CodeFunction     -- ^ Function that is being decompiled
-         , dsInCases    :: Int              -- ^ Number of nested cases we're inside
-         , dsInWith     :: Bool             -- ^ Whether we are inside a with statement
-         , dsWithBreak  :: Maybe Int        -- ^ With statement breakpoint
-         , dsLoopPoints :: Maybe (Int, Int) -- ^ Loop statement continue- and breakpoints
-         , dsCaseBreak  :: Maybe Int        -- ^ Case statement breakpoint
-         , dsBlockEdge  :: Maybe Int        -- ^ The edge of a nested statement (e.g. if)
+         { function   :: CodeFunction     -- ^ Function that is being decompiled
+         , inCases    :: Int              -- ^ Number of nested cases we're inside
+         , with       :: Bool             -- ^ Whether we are inside a with statement
+         , withBreak  :: Maybe Int        -- ^ With statement breakpoint
+         , loopPoints :: Maybe (Int, Int) -- ^ Loop statement continue- and breakpoints
+         , caseBreak  :: Maybe Int        -- ^ Case statement breakpoint
+         , blockEdge  :: Maybe Int        -- ^ The edge of a nested statement (e.g. if)
          }
+
+makeLabels ''DecompS
 
 -- | Initializes 'DecompS'.
 decompS :: CodeFunction -> DecompS
@@ -663,30 +672,28 @@ decompS el = DecompS el 0 False Nothing Nothing Nothing Nothing
 
 -- | Tells where the function ends locally.
 edge :: DecompS -> Int
-edge = fromMaybe <$> codeEnd . dsFunction <*> dsBlockEdge
+edge = fromMaybe <$> (^. #function . to codeEnd) <*> (^. #blockEdge)
 
 -- | Sets the case break.
 inCase :: Int -> DecompS -> DecompS
-inCase brek ds = ds
-                   { dsInCases = dsInCases ds + 1
-                   , dsCaseBreak = Just brek
-                   }
+inCase brek = do #inCases %~ (+) 1
+            . do #caseBreak .~ Just brek
 
 -- | Sets the with statement flag.
 inWith :: DecompS -> DecompS
-inWith ds = ds { dsInWith = True }
+inWith = #with .~ True
 
 -- | Sets the with break.
 brokenWith :: Int -> DecompS -> DecompS
-brokenWith brek ds = ds { dsWithBreak = Just brek }
+brokenWith brek = #withBreak .~ Just brek
 
 -- | Sets the loop statement continue and breakpoints.
 withLoop :: Int -> Int -> DecompS -> DecompS
-withLoop continue brek ds = ds { dsLoopPoints = Just (continue, brek) }
+withLoop continue brek = #loopPoints .~ Just (continue, brek)
 
 -- | Sets the local edge.
 withEdge :: Int -> DecompS -> DecompS
-withEdge edg ds = ds { dsBlockEdge = Just edg }
+withEdge edg = #blockEdge .~ Just edg
 
 
 
@@ -963,19 +970,19 @@ callS =
 -- | Parses 'Break' and 'Continue' statements based on 'DecompS'.
 breakS :: DecompS -> Inst -> Either Stringlike (Inst, Marked Expression)
 breakS ds (s :|> J isPositive (n :@ b))
-  | Just (_, breakPoint)    <- dsLoopPoints ds
+  | Just (_, breakPoint)    <- ds ^. #loopPoints
   , isPositive
   , b == breakPoint    = Right (s, n :@ Break   )
 
-  | Just (continuePoint, _) <- dsLoopPoints ds
+  | Just (continuePoint, _) <- ds ^. #loopPoints
   , not isPositive
   , b == continuePoint = Right (s, n :@ Continue)
 
-  | Just breakPoint         <- dsCaseBreak ds
+  | Just breakPoint         <- ds ^. #caseBreak
   , isPositive
   , b == breakPoint    = Right (s, n :@ Break   )
 
-  | Just breakPoint         <- dsWithBreak ds
+  | Just breakPoint         <- ds ^. #withBreak
   , isPositive
   , b == breakPoint    = Right (s, n :@ Break   )
 
@@ -1005,7 +1012,7 @@ simpleX ds i
     -- case and with statements. While this is supposed to be failable and properly ordered I
     -- didn't bother, so this trusts GameMaker to have put them properly.
     -- (And at least in Risk of Rain 1.3.0 CODE chunk they definitely do)
-    cleanup = consume (dsInCases ds) (dsInWith ds)
+    cleanup = consume (ds ^. #inCases) (ds ^. #with)
     
     consume n b s =
       case s of

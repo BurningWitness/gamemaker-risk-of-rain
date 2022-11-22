@@ -20,7 +20,6 @@
            , FlexibleContexts
            , FlexibleInstances
            , MultiParamTypeClasses
-           , NoFieldSelectors
            , OverloadedStrings
            , OverloadedLabels
            , TemplateHaskell

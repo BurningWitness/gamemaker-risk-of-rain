@@ -13,7 +13,7 @@ import           Data.ByteString.Builder
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import           Lens.Micro
-import           Options.Applicative
+import           Options.Applicative as Options
 
 
 
@@ -30,7 +30,7 @@ args = Args
 
 main :: IO ()
 main = do
-  Args loud file <- execParser $ info (args <**> helper) mempty
+  Args loud file <- execParser $ Options.info (args <**> helper) mempty
   raw <- BSL.readFile file
   BSC.putStrLn ""
   eiForm <- flip stream (decodeForm raw) $ \(n, s) ->
