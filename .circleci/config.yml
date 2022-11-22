@@ -25,7 +25,7 @@ jobs:
 
       - run:
           name: Update Dependencies
-          command: cabal new-update && cabal new-install --lib
+          command: cabal new-update
       - run:
           name: Build
           command: cabal new-build -fcoherence --enable-documentation
@@ -56,7 +56,7 @@ jobs:
       - run:
           name: Build
           command: |
-            stack init --resolver << parameters.resolver >>
+            echo -e 'resolver: << parameters.resolver >>\n\nextra-deps:\n- git: https://github.com/BurningWitness/microlens-labels.git\n  commit: 7630860379fd9392bff19092900e8e180466422f' > stack.yaml
             stack build --flag gamemaker-risk-of-rain:coherence --no-terminal
       - save_cache:
           name: Cache
@@ -92,7 +92,7 @@ jobs:
           name: Build
           shell: bash.exe
           command: |
-            stack init --resolver << parameters.resolver >>
+            echo -e 'resolver: << parameters.resolver >>\n\nextra-deps:\n- git: https://github.com/BurningWitness/microlens-labels.git\n  commit: 7630860379fd9392bff19092900e8e180466422f' > stack.yaml
             stack build --flag gamemaker-risk-of-rain:coherence --no-terminal
       - save_cache:
           name: Cache
