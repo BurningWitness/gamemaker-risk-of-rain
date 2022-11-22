@@ -1,10 +1,12 @@
 {-# LANGUAGE BangPatterns
+           , DataKinds
            , DeriveAnyClass
            , DeriveFunctor
            , DeriveGeneric
            , DerivingStrategies
            , FlexibleContexts
            , GeneralizedNewtypeDeriving
+           , OverloadedLabels
            , PatternSynonyms #-}
 
 module GameMaker.RiskOfRain.Decompilation.Raw
@@ -34,14 +36,14 @@ module GameMaker.RiskOfRain.Decompilation.Raw
   , totalFunctions
   ) where
 
-import           GameMaker.RiskOfRain.Lens
+import           GameMaker.RiskOfRain.Stream
 import           GameMaker.RiskOfRain.Unpacking
 
 import           Control.Applicative
 import           Control.DeepSeq
 import           Data.Bifunctor
 import           Data.Binary.Get
-import           Data.Bits
+import           Data.Bits hiding (Xor (..), And (..))
 import qualified Data.ByteString.Char8 as BS
 import           Data.Function (on)
 import           Data.Int
@@ -52,7 +54,7 @@ import           Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import           GHC.Generics (Generic)
 import           Lens.Micro
-import           Lens.Micro.Internal
+import           Lens.Micro.Labels
 import           Prelude
 
 
@@ -473,11 +475,12 @@ coherentHead vec =
      , case vec Vec.!? 1 of
          Nothing   -> Right ()
          Just next
-           | fromIntegral (cfSize cf) + cfOffset cf == cfOffset next -> Right ()
-           | otherwise -> Left $ mconcat
-                                   [ "Boundary mismatch (", show $ cfSize cf, " + "
-                                   , show $ cfOffset cf, " /= ", show $ cfOffset next, ")"
-                                   ]
+           | fromIntegral (cf ^. #size) + (cf ^. #offset) == (next ^. #offset) -> Right ()
+           | otherwise ->
+               Left $ mconcat
+                        [ "Boundary mismatch (", show $ cf ^. #size, " + "
+                        , show $ cf ^. #offset, " /= ", show $ next ^. #offset, ")"
+                        ]
      )
 
 
@@ -492,7 +495,7 @@ coherentHead vec =
 rawInstructions
   :: Code
   -> [(CodeFunction, Either [Char] [Marked (Raw Instruction)])]
-rawInstructions (Code baseoff (CodeOps bs) els) = row (Vec.length els) els bs 0
+rawInstructions (Code baseoff bs els) = row (Vec.length els) els bs 0
   where
     row n elems input off
       | n <= 0    = []
@@ -501,7 +504,7 @@ rawInstructions (Code baseoff (CodeOps bs) els) = row (Vec.length els) els bs 0
           in case matching of
                Left err -> [(cf, Left err)]
                Right () ->
-                 case runGetOrFail (getRawInstructions (baseoff + off) . fromIntegral $ cf^.size) input of
+                 case runGetOrFail (getRawInstructions (fromIntegral baseoff + off) . fromIntegral $ cf ^. #size) input of
                    Left  (_   , _   , err) -> [(cf, Left err)]
                    Right (rest, off', val) -> (cf, Right val) : row (n - 1) (Vec.tail elems) rest (off + fromIntegral off')
 
@@ -511,35 +514,33 @@ rawInstructions (Code baseoff (CodeOps bs) els) = row (Vec.length els) els bs 0
 --
 --   Used to modify 'instructions' and "GameMaker.RiskOfRain.Decompilation.expressions" to behave
 --   the same way "GameMaker.RiskOfRain.Unpacking.decodeForm" and 'rawInstructions' do.
-extort :: [(CodeFunction, Either a c)] -> ([(Int, BS.ByteString)], Either a [(CodeFunction, c)])
-extort [] = ([], Right [])
+extort :: [(CodeFunction, Either a c)] -> Stream (Int, BS.ByteString) a [(CodeFunction, c)]
+extort [] = Bottom []
 extort as = loop 1 as
   where
     loop n ((a, r):rest) =
-      first ((:) (n, a^.name)) $
+      Next (n, a ^. #name) $
         case r of
-          Right val -> second (fmap $ (:) (a, val)) $ loop (n + 1) rest
-          Left err -> ([], Left err)
+          Right val -> (:) (a, val) <$> loop (n + 1) rest
+          Left err  -> Error err
 
-    loop _ [] = ([], Right [])
+    loop _ [] = Bottom []
 
 
 
 -- | Polymorphic helper function that dumps addresses and their occurrences into a 'BSL.Map'.
 nameMap
-  :: ( Each s s a a
-     , HasAddress a b
+  :: ( Label "address" a b
      , Integral b
-     , HasOccurences a c
-     , HasName a BS.ByteString
+     , Label "occurences" a c
+     , Label "name" a BS.ByteString
      )
-  => s -> IMS.IntMap (c, BS.ByteString)
-nameMap container =
+  => Vector a -> IMS.IntMap (c, BS.ByteString)
+nameMap =
   IMS.fromList
     . fmap (\(n, v) -> (n - 16, v))
     . filter (\(n, _) -> n > 0)
-    $ container^..each.to
-        (\a -> (fromIntegral $ a^.address,(a^.occurences, a^.name)))
+    . Vec.foldMap (\a -> [(fromIntegral $ a ^. #address, (a ^. #occurences, a ^. #name))])
 
 
 
@@ -641,7 +642,7 @@ instruction form transformS raw =
 
     cookStrg :: Word32 -> Either [Char] BS.ByteString
     cookStrg s =
-      case form^?strg.ix (fromIntegral s) of
+      case form ^? #strg . to (Vec.! fromIntegral s) of
         Nothing     -> Left $ "Could not find string under index" <> show s
         Just string -> Right string
 
@@ -682,7 +683,7 @@ instructions
   -> [(CodeFunction, Either [Char] [Marked (Cooked Instruction)])]
 instructions form cod var fun =
   let transformS :: TransformS
-      transformS = (nameMap $ var^.elements, nameMap $ fun^.positions)
+      transformS = (nameMap $ var ^. #elements, nameMap $ fun ^. #positions)
 
       f s (cf, ei) = case ei of
                        Left err  -> (s, (cf, Left err))
@@ -697,4 +698,4 @@ instructions form cod var fun =
 
 -- | Total number of functions within the 'Code' chunk.
 totalFunctions :: Code -> Int
-totalFunctions = Vec.length . flip (^.) elements
+totalFunctions = Vec.length . (^. #elements)

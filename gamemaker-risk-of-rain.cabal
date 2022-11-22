@@ -1,7 +1,7 @@
 cabal-version: 1.12
 
 name:           gamemaker-risk-of-rain
-version:        0.2.0.0
+version:        0.3.0.0
 synopsis:       Risk of Rain 1 GameMaker data file unpacking
 description:    Please see the README on GitHub at <https://github.com/burningwitness/gamemaker-risk-of-rain#readme>
 category:       Decompiler
@@ -13,25 +13,51 @@ copyright:      (c) 2021-2022, Oleksii Divak
 license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
-extra-source-files:
-  README.md
 
 source-repository head
   type: git
   location: https://github.com/burningwitness/gamemaker-risk-of-rain
 
+flag coherence
+  description: Whether the test app should be built
+  default: False
+
+executable coherence
+  main-is: Main.hs
+
+  hs-source-dirs: app/coherence
+
+  ghc-options: -Wall -O2
+
+  build-depends: base >=4.12 && <5
+               , bytestring
+               , deepseq
+               , gamemaker-risk-of-rain
+               , microlens
+               , optparse-applicative
+
+  default-language: Haskell2010
+
+  if flag (coherence)
+    buildable: True
+  else
+    buildable: False
+
 library
   exposed-modules: GameMaker.RiskOfRain
                    GameMaker.RiskOfRain.Decompilation
                    GameMaker.RiskOfRain.Decompilation.Raw
-                   GameMaker.RiskOfRain.Lens
-                   GameMaker.RiskOfRain.Lens.Internal
+                   GameMaker.RiskOfRain.Stream
                    GameMaker.RiskOfRain.Unpacking
-                   GameMaker.RiskOfRain.Unpacking.Unpack
+                   GameMaker.RiskOfRain.Unpacking.Help
 
   hs-source-dirs: src
 
-  default-extensions: NoImplicitPrelude
+  if impl (ghc >= 9.2)
+    default-extensions: NoImplicitPrelude
+                        NoFieldSelectors
+  else
+    default-extensions: NoImplicitPrelude
 
   ghc-options: -Wall -O2
 
@@ -41,30 +67,9 @@ library
                , containers
                , deepseq
                , microlens
-               , microlens-platform
-               , microlens-th
+               , microlens-labels
                , template-haskell
                , time
                , vector
-
-  default-language: Haskell2010
-
-test-suite coherence
-  type: exitcode-stdio-1.0
-
-  main-is: Main.hs
-
-  hs-source-dirs: test/coherence
-
-  default-extensions: NoImplicitPrelude
-
-  ghc-options: -Wall -O2 -threaded -rtsopts -with-rtsopts=-N
-
-  build-depends: base >=4.12 && <5
-               , bytestring
-               , deepseq
-               , gamemaker-risk-of-rain
-               , microlens
-               , optparse-applicative
 
   default-language: Haskell2010

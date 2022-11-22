@@ -1,10 +1,10 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedLabels
+           , OverloadedStrings #-}
 
 module Main where
 
 import           GameMaker.RiskOfRain
 import           GameMaker.RiskOfRain.Decompilation (unparsed)
-import           GameMaker.RiskOfRain.Lens hiding (info)
 
 import           Control.DeepSeq
 import           Control.Exception
@@ -12,10 +12,8 @@ import           Control.Monad
 import           Data.ByteString.Builder
 import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Lazy.Char8 as BSL
-import           Data.Foldable
 import           Lens.Micro
-import           Options.Applicative
-import           Prelude
+import           Options.Applicative as Options
 
 
 
@@ -32,80 +30,78 @@ args = Args
 
 main :: IO ()
 main = do
-  Args loud file <- execParser $ info (args <**> helper) mempty
+  Args loud file <- execParser $ Options.info (args <**> helper) mempty
   raw <- BSL.readFile file
   BSC.putStrLn ""
-  let (parsed, eiForm) = decodeForm raw
-  when loud $
-    flip traverse_ parsed $ \(n, s) ->
-           BSL.putStrLn .
-             toLazyByteString $
-               "(" <> intDec n <> "/" <> intDec totalChunks <> ") " <> byteString s
+  eiForm <- flip stream (decodeForm raw) $ \(n, s) ->
+              when loud $
+                BSL.putStrLn .
+                  toLazyByteString $
+                    "(" <> intDec n <> "/" <> intDec totalChunks <> ") " <> string8 s
   case eiForm of
     Left err   -> fail $ "Decoding error: " <> err
     Right form -> do
       _ <- evaluate $ force form
       BSC.putStrLn $ mconcat
-                       [ form^.gen8.name
-                       , ", build ", BSC.pack . show $ form^.gen8.build
-                       , ", created at ", BSC.pack . show $ form^.gen8.timestamp
+                       [ form ^. #gen8 . #name
+                       , ", build ", BSC.pack . show $ form ^. #gen8 . #build
+                       , ", created at ", BSC.pack . show $ form ^. #gen8 . #timestamp
                        ]
       BSC.putStrLn $ mconcat
                        [ "Sound files: "
-                       , BSC.pack . show . length $ form^.sond
+                       , BSC.pack . show . length $ form ^. #sond
                        ]
       BSC.putStrLn $ mconcat
                        [ "Sprites: "
-                       , BSC.pack . show . length $ form^.sprt
+                       , BSC.pack . show . length $ form ^. #sprt
                        ]
       BSC.putStrLn $ mconcat
                        [ "Backgrounds: "
-                       , BSC.pack . show . length $ form^.bgnd
+                       , BSC.pack . show . length $ form ^. #bgnd
                        ]
       BSC.putStrLn $ mconcat
                        [ "Fonts: "
-                       , BSC.pack . show . length $ form^.font
+                       , BSC.pack . show . length $ form ^. #font
                        ]
       BSC.putStrLn $ mconcat
                        [ "Rooms: "
-                       , BSC.pack . show . length $ form^.room
+                       , BSC.pack . show . length $ form ^. #room
                        ]
       BSC.putStrLn $ mconcat
                        [ "Texture slices: "
-                       , BSC.pack . show . length $ form^.tpag
+                       , BSC.pack . show . length $ form ^. #tpag
                        ]
       BSC.putStrLn $ mconcat
                        [ "Unique function names: "
-                       , BSC.pack . show . length $ form^.code._Just.elements
+                       , BSC.pack . show . length $ form ^. #code . _Just . #elements
                        ]
       BSC.putStrLn $ mconcat
                        [ "Unique variable names: "
-                       , BSC.pack . show . length $ form^.vari._Just.elements
+                       , BSC.pack . show . length $ form ^. #vari . _Just . #elements
                        ]
       BSC.putStrLn $ mconcat
                        [ "Unique GameMaker function names: "
-                       , BSC.pack . show . length $ form^.func._Just.positions
+                       , BSC.pack . show . length $ form ^. #func . _Just . #positions
                        ]
       BSC.putStrLn $ mconcat
                        [ "Strings: "
-                       , BSC.pack . show . length $ form^.strg
+                       , BSC.pack . show . length $ form ^. #strg
                        ]
       BSC.putStrLn $ mconcat
                        [ "Textures: "
-                       , BSC.pack . show . length $ form^.txtr
+                       , BSC.pack . show . length $ form ^. #txtr
                        ]
       BSC.putStrLn $ mconcat
                        [ "Audio files: "
-                       , BSC.pack . show . length $ form^.audo
+                       , BSC.pack . show . length $ form ^. #audo
                        ]
-      case (form^.code, form^.vari, form^.func) of
+      case (form ^. #code, form ^. #vari, form ^. #func) of
         (Just cod, Just var, Just fun) -> do
-          let (parsed2, insts) = extort $ expressions form cod var fun
-          when loud $
-            flip traverse_ parsed2 $ \(n, s) ->
-                   BSL.putStrLn .
-                     toLazyByteString $
-                       "(" <> intDec n <> "/" <> intDec (totalFunctions cod) <> ") " <> byteString s
+          insts <- flip stream (extort $ expressions form cod var fun) $ \(n, s) ->
+                     when loud $
+                       BSL.putStrLn .
+                         toLazyByteString $
+                           "(" <> intDec n <> "/" <> intDec (totalFunctions cod) <> ") " <> byteString s
           case insts of
             Left err     -> fail $ "Expression parsing error: " <> err
             Right decomp -> do
