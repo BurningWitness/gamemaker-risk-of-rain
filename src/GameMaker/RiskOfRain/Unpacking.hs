@@ -7,30 +7,31 @@
     the same with Undertale and succeeded quite a lot, so a big thanks goes to them.
 
     It's not a 1 to 1 to the structure described on the aforementioned website though,
-    certain fields are not really useful (e.g. list lengths) and therefore are omitted,
+    certain fields are not really useful (e.g. array lengths) and therefore are omitted,
     plus there are certain incredibly minor differences.
 
     Well and also some names don't match because there is zero point synching between the two.
  -}
 
-{-# LANGUAGE DeriveAnyClass
+{-# LANGUAGE DataKinds
+           , DeriveAnyClass
            , DeriveGeneric
+           , DuplicateRecordFields
+           , FlexibleContexts
            , FlexibleInstances
-           , OverloadedStrings #-}
+           , MultiParamTypeClasses
+           , NoFieldSelectors
+           , OverloadedStrings
+           , OverloadedLabels
+           , TemplateHaskell
+           , TypeApplications #-}
 
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-ambiguous-fields #-}
 
-module GameMaker.RiskOfRain.Unpacking
-  ( InfoFlag (..)
-  , CRC32 (..)
-  , MD5 (..)
-  , RGBA (..)
-  , RoomEntryFlag (..)
-  , SoundEntryFlag (..)
-  , module GameMaker.RiskOfRain.Unpacking
-  ) where
+module GameMaker.RiskOfRain.Unpacking where
 
-import           GameMaker.RiskOfRain.Unpacking.Unpack
+import           GameMaker.RiskOfRain.Stream
+import           GameMaker.RiskOfRain.Unpacking.Help
 
 import           Control.Applicative
 import           Control.DeepSeq
@@ -38,195 +39,129 @@ import           Control.Monad
 import           Data.Binary.Get
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
-import           Data.Functor ((<&>))
 import           Data.Int
+import           Data.Set (Set)
 import           Data.String
 import           Data.Time.Clock (UTCTime)
 import           Data.Vector (Vector)
 import qualified Data.Vector as Vec
 import           Data.Word
 import           GHC.Generics
-import           Prelude
-
-
-
--- | Decodes the 'Form'.
---
---   First argument of the resulting tuple is a list of parsed chunk names.
---   Each name is produced lazily after the previous chunk is evaluated.
---   Reaching end of the list thus means fully evaluating the decoding result.
-decodeForm :: IsString s => BSL.ByteString -> ([(Int, s)], Either [Char] Form)
-decodeForm file =
-  case runGetOrFail (extChunk "FORM") file of
-    Left  (_   , _, err     ) -> ([], Left err)
-    Right (rest, _, formsize) ->
-      ( segment "GEN8"
-      . segment "OPTN"
-      . segment "EXTN"
-      . segment "SOND"
-      . segment "AGRP"
-      . segment "SPRT"
-      . segment "BGND"
-      . segment "PATH"
-      . segment "SCPT"
-      . segment "SHDR"
-      . segment "FONT"
-      . segment "TMLN"
-      . segment "OBJT"
-      . segment "ROOM"
-      . segment "DAFL"
-      . segment "TPAG"
-      . tiltCode (segment "CODE")
-      . segment "VARI"
-      . segment "FUNC"
-      . segment "STRG"
-      . segment "TXTR"
-      . segment "AUDO"
-      ) (\x _ _ _ -> ([], Right x)) Form 1 (BSL.take (fromIntegral formsize) rest) 0
-  where
-    segment name f app n rest off =
-      let (x, y) = case runGetOrFail (unpack file) rest of
-                     Right (rest', off', a  ) -> f (app a) (n + 1) rest' (off + off')
-                     Left  (_    , _   , err) -> ([], Left err)
-      in ((n, name):x, y)
-
-    tiltCode f x n r o p =
-      let (a, b) = f x n r o p
-      in ( a
-         , b <&> \form ->
-             form
-               { fCode = fCode form <&> \code ->
-                           code
-                             { cOffset   = fromIntegral p + cOffset code
-                             , cElements = cElements code <&> \el ->
-                                             el { cfOffset = fromIntegral p + cfOffset el }
-                             }
-               }
-         )
-
-
-
--- | Total number of chunks 'decodeForm' parses.
-totalChunks :: Int
-totalChunks = 22
+import           Lens.Micro.Labels.TH
+import           Prelude hiding (getChar)
 
 
 
 data Form =
        Form
-         { fGen8 :: Gen8
-         , fOptn :: Optn
-         , fExtn :: Extn
-         , fSond :: Sond
-         , fAgrp :: Agrp
-         , fSprt :: Sprt
-         , fBgnd :: Bgnd
-         , fPath :: Path
-         , fScpt :: Scpt
-         , fShdr :: Shdr
-         , fFont :: Font
-         , fTmln :: Tmln
-         , fObjt :: Objt
-         , fRoom :: Room
-         , fDafl :: Dafl
-         , fTpag :: Tpag
-         , fCode :: Maybe Code
-         , fVari :: Maybe Vari
-         , fFunc :: Maybe Func
-         , fStrg :: Strg
-         , fTxtr :: Txtr
-         , fAudo :: Audo
+         { gen8 :: Gen8
+         , optn :: Optn
+         , extn :: Extn
+         , sond :: Sond
+         , agrp :: Agrp
+         , sprt :: Sprt
+         , bgnd :: Bgnd
+         , path :: Path
+         , scpt :: Scpt
+         , shdr :: Shdr
+         , font :: Font
+         , tmln :: Tmln
+         , objt :: Objt
+         , room :: Room
+         , dafl :: Dafl
+         , tpag :: Tpag
+         , code :: Maybe Code
+         , vari :: Maybe Vari
+         , func :: Maybe Func
+         , strg :: Strg
+         , txtr :: Txtr
+         , audo :: Audo
          }
-       deriving (Show, Eq, Generic, NFData)
+       deriving (Show, Generic, NFData)
 
 
 
 -- | Curious information about the videogame.
 data Gen8 =
        Gen8
-         { gUnknown1       :: Word32
-         , gName           :: Pointer BS.ByteString
-         , gFilename       :: Pointer BS.ByteString
-         , gUnknown2       :: Word32
-         , gUnknown3       :: Word32
-         , gUnknown4       :: Word32
-         , gUnknown5       :: Word32
-         , gUnknown6       :: Word32
-         , gUnknown7       :: Word32
-         , gUnknown8       :: Word32
-         , gName_          :: Pointer BS.ByteString
-         , gMajor          :: Word32
-         , gMinor          :: Word32
-         , gRelease        :: Word32
-         , gBuild          :: Word32
-         , gDefaultHeight  :: Word32
-         , gDefaultWidth   :: Word32
-         , gInfo           :: InfoFlags
-         , gLicenseMD5     :: MD5
-         , gLicenseCRC32   :: CRC32
-         , gTimestamp      :: UTCTime
-         , gUnknown9       :: Word32
-         , gDisplayName    :: Pointer BS.ByteString
-         , gUnknown10      :: Word32
-         , gUnknown11      :: Word32
-         , gUnknown12      :: Word32
-         , gUnknown13      :: Word32
-         , gUnknown14      :: Word32
-         , gUnknown15      :: Word32
-         , gRooms          :: Vector Word32
+         { unknown1       :: Word32
+         , name           :: BS.ByteString
+         , filename       :: BS.ByteString
+         , unknown2       :: Word32
+         , unknown3       :: Word32
+         , unknown4       :: Word32
+         , unknown5       :: Word32
+         , unknown6       :: Word32
+         , unknown7       :: Word32
+         , unknown8       :: Word32
+         , name_          :: BS.ByteString
+         , major          :: Word32
+         , minor          :: Word32
+         , release        :: Word32
+         , build          :: Word32
+         , defaultHeight  :: Word32
+         , defaultWidth   :: Word32
+         , info           :: Set InfoFlag
+         , licenseMD5     :: BS.ByteString
+         , licenseCRC32   :: Word32
+         , timestamp      :: UTCTime
+         , unknown9       :: Word32
+         , displayName    :: BS.ByteString
+         , unknown10      :: Word32
+         , unknown11      :: Word32
+         , unknown12      :: Word32
+         , unknown13      :: Word32
+         , unknown14      :: Word32
+         , unknown15      :: Word32
+         , rooms          :: Vector Word32
          }
-       deriving (Show, Eq, Generic, NFData)
+       deriving (Show, Generic, NFData)
 
-instance Unpack Gen8 where
-  unpack form =
-    chunk "GEN8" $ \_ -> do
-      Gen8
-        <$> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> unpack form
-        <*> do size <- fromIntegral <$> getWord32le
-               Vec.replicateM size getWord32le
+getGen8 :: BSL.ByteString -> Get Gen8
+getGen8 form =
+  chunk "GEN8" $ \_ -> do
+    Gen8
+      <$> getWord32le
+      <*> getPtr form getByteStringNul
+      <*> getPtr form getByteStringNul
+      <*> getWord32le
+      <*> getWord32le
+      <*> getWord32le
+      <*> getWord32le
+      <*> getWord32le
+      <*> getWord32le
+      <*> getWord32le
+      <*> getPtr form getByteStringNul
+      <*> getWord32le
+      <*> getWord32le
+      <*> getWord32le
+      <*> getWord32le
+      <*> getWord32le
+      <*> getWord32le
+      <*> getInfoFlags
+      <*> getByteString 16
+      <*> getWord32le
+      <*> getTime
+      <*> getWord32le
+      <*> getPtr form getByteStringNul
+      <*> getWord32le
+      <*> getWord32le
+      <*> getWord32le
+      <*> getWord32le
+      <*> getWord32le
+      <*> getWord32le
+      <*> do size <- fromIntegral <$> getWord32le
+             Vec.replicateM size getWord32le
 
 
 
 -- | Garbage. Identical between Linux and Windows versions.
-newtype Optn = Optn { unOptn :: BSL.ByteString }
-               deriving (Show, Eq)
+type Optn = BSL.ByteString
 
-instance NFData Optn where
-  rnf (Optn bs) = rnf bs
-
-instance Unpack Optn where
-  unpack _ =
-    chunk "OPTN" $ \_ -> 
-      Optn
-        <$> getRemainingLazyByteString
+getOptn :: Get Optn
+getOptn =
+  chunk "OPTN" $ \_ ->
+    getRemainingLazyByteString
 
 
 
@@ -235,198 +170,209 @@ instance Unpack Optn where
 --   is just ones and twos scattered around.
 data Extn =
        Extn
-         { eUnknown1 :: Dictionary ExtnTriplet
-         , eUnknown2 :: Dictionary ExtnSegment
-         , eUnknown3 :: BSL.ByteString
+         { unknown1 :: Vector ExtnTriplet
+         , unknown2 :: Vector ExtnSegment
+         , unknown3 :: BSL.ByteString
          }
-       deriving (Show, Eq, Generic, NFData)
+       deriving (Show, Generic, NFData)
 
-instance Unpack Extn where
-  unpack form =
-    chunk "EXTN" $ \_ ->
-      Extn
-        <$> unpack form
-        <*> unpack form
-        <*> getRemainingLazyByteString
+getExtn :: BSL.ByteString -> Get Extn
+getExtn form =
+  chunk "EXTN" $ \_ ->
+    Extn
+      <$> getDict (getExtnTriplet form)
+      <*> getDict (getExtnSegment form)
+      <*> getRemainingLazyByteString
 
 data ExtnTriplet =
        ExtnTriplet
-         { etUnknown1 :: Pointer BS.ByteString
-         , etUnknown2 :: Pointer BS.ByteString
-         , etUnknown3 :: Pointer BS.ByteString
+         { unknown1 :: BS.ByteString
+         , unknown2 :: BS.ByteString
+         , unknown3 :: BS.ByteString
          }
-       deriving (Show, Eq, Generic, NFData, Unpack)
+       deriving (Show, Generic, NFData)
+
+getExtnTriplet :: BSL.ByteString -> Get ExtnTriplet
+getExtnTriplet form =
+  ExtnTriplet
+    <$> getPtr form getByteStringNul
+    <*> getPtr form getByteStringNul
+    <*> getPtr form getByteStringNul
 
 data ExtnSegment =
        ExtnSegment
-         { esName       :: ExtnTriplet
-         , esUnknown1   :: Word32
-         , esOperations :: Dictionary ExtnOperation
+         { name       :: ExtnTriplet
+         , unknown1   :: Word32
+         , operations :: Vector ExtnOperation
          }
-       deriving (Show, Eq, Generic, NFData, Unpack)
+       deriving (Show, Generic, NFData)
+
+getExtnSegment :: BSL.ByteString -> Get ExtnSegment
+getExtnSegment form =
+  ExtnSegment
+    <$> getExtnTriplet form
+    <*> getWord32le
+    <*> getDict (getExtnOperation form)
 
 data ExtnOperation =
        ExtnOperation
-         { eoOperationFs :: Pointer BS.ByteString
-         , eoOperationId :: Word32
-         , eoUnknown1    :: Word32
-         , eoUnknown2    :: Word32
-         , eoOperation   :: Pointer BS.ByteString
-         , eoUnknown3    :: Vector Word32
+         { operationFs :: BS.ByteString
+         , operationId :: Word32
+         , unknown1    :: Word32
+         , unknown2    :: Word32
+         , operation   :: BS.ByteString
+         , unknown3    :: Vector Word32
          }
-       deriving (Show, Eq, Generic, NFData)
+       deriving (Show, Generic, NFData)
 
-instance Unpack ExtnOperation where
-  unpack form =
-    ExtnOperation
-      <$> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> do size <- fromIntegral <$> getWord32le
-             Vec.replicateM size $ unpack form
+getExtnOperation :: BSL.ByteString -> Get ExtnOperation
+getExtnOperation form =
+  ExtnOperation
+    <$> getPtr form getByteStringNul
+    <*> getWord32le
+    <*> getWord32le
+    <*> getWord32le
+    <*> getPtr form getByteStringNul
+    <*> do size <- fromIntegral <$> getWord32le
+           Vec.replicateM size getWord32le
 
 
 
 -- | Sound files and information.
-newtype Sond = Sond { unSond :: Dictionary SondElement }
-               deriving (Show, Eq)
+type Sond = Vector SondElement
 
-instance NFData Sond where
-  rnf (Sond dict) = rnf dict
-
-instance Unpack Sond where
-  unpack form =
-    chunk "SOND" $ \_ -> do
-      Sond
-        <$> unpack form
+getSond :: BSL.ByteString -> Get Sond
+getSond form =
+  chunk "SOND" $ \_ ->
+    getDict $ getSondElement form
 
 data SondElement =
        SondElement
-         { seName       :: Pointer BS.ByteString
-         , seFlags      :: SoundEntryFlags
-         , seExtension  :: Pointer BS.ByteString -- Always ".ogg"
-         , seFilename   :: Pointer BS.ByteString
-         , seUnknown1   :: Word32                -- Always zero
-         , seVolume     :: Float
-         , sePitch      :: Float
-         , seGroupId    :: Float
-         , seIdentifier :: Int32
+         { name       :: BS.ByteString
+         , flags      :: Set SoundEntryFlag
+         , extension  :: BS.ByteString
+         , filename   :: BS.ByteString
+         , unknown1   :: Word32             -- Always zero
+         , volume     :: Float
+         , pitch      :: Float
+         , groupId    :: Float
+         , identifier :: Int32
          }
-       deriving (Show, Eq, Generic, NFData, Unpack)
+       deriving (Show, Generic, NFData)
+
+getSondElement :: BSL.ByteString -> Get SondElement
+getSondElement form =
+  SondElement
+    <$> getPtr form getByteStringNul
+    <*> getSoundEntryFlags
+    <*> getPtr form getByteStringNul
+    <*> getPtr form getByteStringNul
+    <*> getWord32le
+    <*> getFloatle
+    <*> getFloatle
+    <*> getFloatle
+    <*> getInt32le
 
 
 
 -- | Empty in both files
-newtype Agrp = Agrp { unAgrp :: Dictionary ()}
-               deriving (Show, Eq)
+type Agrp = Vector ()
 
-instance NFData Agrp where
-  rnf (Agrp dict) = rnf dict
-
-instance Unpack Agrp where
-  unpack form =
-    chunk "AGRP" $ \_ ->
-      Agrp
-        <$> unpack form
+getAgrp :: Get Agrp
+getAgrp =
+  chunk "AGRP" $ \_ ->
+    getDict $ pure ()
 
 
 
 -- | Foreground sprites with all the masks and stuff.
-newtype Sprt = Sprt { unSprt :: DictionaryS SprtElement }
-               deriving (Show, Eq)
+type Sprt = Vector SprtElement
 
-instance NFData Sprt where
-  rnf (Sprt dict) = rnf dict
-
-instance Unpack Sprt where
-  unpack form =
-    chunk "SPRT" $ \_ ->
-      Sprt
-        <$> unpack form
+getSprt :: BSL.ByteString -> Get Sprt
+getSprt form =
+  chunk "SPRT" $ \_ ->
+    getDictSized $ getSprtElement form
 
 data SprtElement =
        SprtElement
-         { speName         :: Pointer BS.ByteString
-         , speWidth        :: Int32
-         , speHeight       :: Int32
-         , speMarginLeft   :: Int32
-         , speMarginRight  :: Int32
-         , speMarginTop    :: Int32
-         , speMarginBottom :: Int32
-         , speUnknown1     :: Int32                 -- Always zero
-         , speUnknown2     :: Int32                 -- Always zero
-         , speUnknown3     :: Int32                 -- Always zero
-         , speBBoxMode     :: Int32
-         , speSepMasks     :: Int32
-         , speOriginX      :: Int32
-         , speOriginY      :: Int32
-         , speTextures     :: Vector (Pointer TpagElement)
-         , speRemaining    :: BSL.ByteString
+         { name         :: BS.ByteString
+         , width        :: Int32
+         , height       :: Int32
+         , marginLeft   :: Int32
+         , marginRight  :: Int32
+         , marginTop    :: Int32
+         , marginBottom :: Int32
+         , unknown1     :: Int32                 -- Always zero
+         , unknown2     :: Int32                 -- Always zero
+         , unknown3     :: Int32                 -- Always zero
+         , bBoxMode     :: Int32
+         , sepMasks     :: Int32
+         , originX      :: Int32
+         , originY      :: Int32
+         , textures     :: Vector TpagElement
+         , remaining    :: BSL.ByteString
          }
-       deriving (Show, Eq, Generic, NFData)
+       deriving (Show, Generic, NFData)
 
-instance Unpack SprtElement where
-  unpack form =
-    SprtElement
-      <$> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> do size <- fromIntegral <$> getWord32le
-             Vec.replicateM size $ unpack form
-      <*> getRemainingLazyByteString
+getSprtElement :: BSL.ByteString -> Get SprtElement
+getSprtElement form =
+  SprtElement
+    <$> getPtr form getByteStringNul
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> do size <- fromIntegral <$> getWord32le
+           Vec.replicateM size $ getPtr form getTpagElement
+    <*> getRemainingLazyByteString
 
 
 
 -- | Background sprites.
-newtype Bgnd = Bgnd { unBgnd :: Dictionary BgndElement }
-               deriving (Show, Eq)
+type Bgnd = Vector BgndElement
 
-instance NFData Bgnd where
-  rnf (Bgnd dict) = rnf dict
-
-instance Unpack Bgnd where
-  unpack form =
-    chunk "BGND" $ \_ ->
-      Bgnd
-        <$> unpack form
+getBgnd :: BSL.ByteString -> Get Bgnd
+getBgnd form =
+  chunk "BGND" $ \_ ->
+    getDict $ getBgndElement form
 
 data BgndElement =
        BgndElement
-         { beName     :: Pointer BS.ByteString
+         { beName     :: BS.ByteString
          , beUnknown1 :: Word32                  -- Always zero
          , beUnknown2 :: Word32                  -- Always zero
          , beUnknown3 :: Word32                  -- Always zero
-         , beTexture  :: Pointer TpagElement
+         , beTexture  :: TpagElement
          }
-       deriving (Show, Eq, Generic, NFData, Unpack)
+       deriving (Show, Generic, NFData)
+
+getBgndElement :: BSL.ByteString -> Get BgndElement
+getBgndElement form =
+  BgndElement
+    <$> getPtr form getByteStringNul
+    <*> getWord32le
+    <*> getWord32le
+    <*> getWord32le
+    <*> getPtr form getTpagElement
 
 
 
 -- | Empty in both files
-newtype Path = Path { unPath :: Dictionary () }
-               deriving (Show, Eq)
+type Path = Vector ()
 
-instance NFData Path where
-  rnf (Path dict) = rnf dict
-
-instance Unpack Path where
-  unpack form =
-    chunk "PATH" $ \_ ->
-      Path
-        <$> unpack form
+getPath :: Get Path
+getPath =
+  chunk "PATH" $ \_ ->
+    getDict $ pure ()
 
 
 
@@ -434,604 +380,809 @@ instance Unpack Path where
 --
 --   I suppose this is an extremely elaborate strategy to bind 'CodeFunction's to
 --   'FuncPosition's or something, however the difference between the two is just a prefix.
-newtype Scpt = Scpt { unScpt :: Dictionary ScptBinding }
-               deriving (Show, Eq)
+type Scpt = Vector ScptBinding
 
-instance NFData Scpt where
-  rnf (Scpt dict) = rnf dict
-
-instance Unpack Scpt where
-  unpack form =
-    chunk "SCPT" $ \_ ->
-      Scpt
-        <$> unpack form
+getScpt :: BSL.ByteString -> Get Scpt
+getScpt form =
+  chunk "SCPT" $ \_ ->
+    getDict $ getScptBinding form
 
 data ScptBinding =
        ScptBinding
-         { sbPointer    :: Pointer BS.ByteString
+         { sbPointer    :: BS.ByteString
          , sbIdentifier :: Word32
          }
-       deriving (Show, Eq, Generic, NFData, Unpack)
+       deriving (Show, Generic, NFData)
+
+getScptBinding :: BSL.ByteString -> Get ScptBinding
+getScptBinding form =
+  ScptBinding
+    <$> getPtr form getByteStringNul
+    <*> getWord32le
 
 
 
 -- | Garbage. For the record shaders are stored in STRG.
-newtype Shdr = Shdr { unShdr :: BSL.ByteString }
-               deriving (Show, Eq)
+type Shdr = BSL.ByteString
 
-instance NFData Shdr where
-  rnf (Shdr dict) = rnf dict
-
-instance Unpack Shdr where
-  unpack _ =
-    chunk "SHDR" $ \_ ->
-      Shdr
-        <$> getRemainingLazyByteString
+getShdr :: Get Shdr
+getShdr =
+  chunk "SHDR" $ \_ ->
+    getRemainingLazyByteString
 
 
 
 -- | Font descriptions because GameMaker can't tug around font files, so they're shoved
 --   in textures.
-newtype Font = Font { unFont :: Dictionary FontElement }
-               deriving (Show, Eq)
+type Font = Vector FontElement
 
-instance NFData Font where
-  rnf (Font dict) = rnf dict
-
-instance Unpack Font where
-  unpack form =
-    chunk "FONT" $ \_ -> do
-      font <- Font
-                <$> unpack form
-      _ <- getRemainingLazyByteString
-      return font
+getFont :: BSL.ByteString -> Get Font
+getFont form =
+  chunk "FONT" $ \_ -> do
+    font <- getDict $ getFontElement form
+    _ <- getRemainingLazyByteString
+    return font
 
 data FontElement =
        FontElement
-         { feType         :: Pointer BS.ByteString
-         , feName         :: Pointer BS.ByteString
-         , feEmSize       :: Word32
-         , feBold         :: Bool
-         , feItalic       :: Bool
-         , feRangeStart   :: Int16
-         , feCharset      :: Word8
-         , feAntialiasing :: Word8
-         , feRangeEnd     :: Word32
-         , feTexture      :: Pointer TpagElement
-         , feScaleX       :: Float
-         , feScaleY       :: Float
-         , feCharacters   :: Dictionary FontBit
+         { kind         :: BS.ByteString
+         , name         :: BS.ByteString
+         , emSize       :: Word32
+         , bold         :: Bool
+         , italic       :: Bool
+         , rangeStart   :: Int16
+         , charset      :: Word8
+         , antialiasing :: Word8
+         , rangeEnd     :: Word32
+         , texture      :: TpagElement
+         , scaleX       :: Float
+         , scaleY       :: Float
+         , characters   :: Vector FontBit
          }
-       deriving (Show, Eq, Generic, NFData, Unpack)
+       deriving (Show, Generic, NFData)
+
+getFontElement :: BSL.ByteString -> Get FontElement
+getFontElement form =
+  FontElement
+    <$> getPtr form getByteStringNul
+    <*> getPtr form getByteStringNul
+    <*> getWord32le
+    <*> getBool
+    <*> getBool
+    <*> getInt16le
+    <*> getWord8
+    <*> getWord8
+    <*> getWord32le
+    <*> getPtr form getTpagElement
+    <*> getFloatle
+    <*> getFloatle
+    <*> getDict getFontBit
 
 data FontBit =
        FontBit
-         { fbCharacter :: Char
-         , fbOffsetX   :: Int16
-         , fbOffsetY   :: Int16
-         , fbWidth     :: Int16
-         , fbHeight    :: Int16
-         , fbAdvance   :: Int16
-         , fbBearingX  :: Int16
-         , fbBearingY  :: Int16
+         { character :: Char
+         , offsetX   :: Int16
+         , offsetY   :: Int16
+         , width     :: Int16
+         , height    :: Int16
+         , advance   :: Int16
+         , bearingX  :: Int16
+         , bearingY  :: Int16
          }
-       deriving (Show, Eq, Generic, NFData, Unpack)
+       deriving (Show, Generic, NFData)
+
+getFontBit :: Get FontBit
+getFontBit =
+  FontBit
+    <$> getChar
+    <*> getInt16le
+    <*> getInt16le
+    <*> getInt16le
+    <*> getInt16le
+    <*> getInt16le
+    <*> getInt16le
+    <*> getInt16le
 
 
 
 -- | Always a single 32bit zero.
-newtype Tmln = Tmln { unTmln :: BSL.ByteString }
-               deriving (Show, Eq)
+type Tmln = BSL.ByteString
 
-instance NFData Tmln where
-  rnf (Tmln bs) = rnf bs
-
-instance Unpack Tmln where
-  unpack _ =
-    chunk "TMLN" $ \_ ->
-      Tmln
-        <$> getRemainingLazyByteString
+getTmln :: Get Tmln
+getTmln =
+  chunk "TMLN" $ \_ ->
+    getRemainingLazyByteString
 
 
 
 -- | Pretty much garbage. Extremely bulky, confusing and utterly undecryptable since
 --   Risk of Rain barely uses physics at all.
-newtype Objt = Objt { unObjt :: Dictionary ObjtElement }
-               deriving (Show, Eq)
+type Objt = Vector ObjtElement
 
-instance NFData Objt where
-  rnf (Objt dict) = rnf dict
-
-instance Unpack Objt where
-  unpack form =
-    chunk "OBJT" $ \_ -> do
-      objt <- Objt
-                <$> unpack form
-      _ <- getRemainingLazyByteString
-      return objt
+getObjt :: BSL.ByteString -> Get Objt
+getObjt form =
+  chunk "OBJT" $ \_ -> do
+    objt <- getDict $ getObjtElement form
+    _ <- getRemainingLazyByteString
+    return objt
 
 -- | The only thing from here we know for sure are name and sprite index
 data ObjtElement =
        ObjtElement
-         { oeName            :: Pointer BS.ByteString
-         , oeSpriteIndex     :: Int32
-         , oeVisible         :: Bool
-         , oeSolid           :: Bool
-         , oeDepth           :: Int32
-         , oePersistent      :: Bool
-         , oeParentId        :: Int32
-         , oeTextureMaskId   :: Int32
-         , oeUnknown1        :: Int32
-         , oeUnknown2        :: Int32
-         , oeUnknown3        :: Int32
-         , oeUnknown4        :: Float
-         , oeUnknown5        :: Float
-         , oeUnknown6        :: Float
-         , oeUnknown7        :: Float
-         , oeUnknown8        :: Float
-         , oeShapePointCount :: Int32
-         , oeUnknown9        :: Float
-         , oeUnknown10       :: Int32
-         , oeUnknown11       :: Int32
-         , oeShapePoints     :: Vector (Float, Float)
-         , oeUnknown12       :: Dictionary ObjtSub -- Always holds 12 elements
+         { name            :: BS.ByteString
+         , spriteIndex     :: Int32
+         , visible         :: Bool
+         , solid           :: Bool
+         , depth           :: Int32
+         , persistent      :: Bool
+         , parentId        :: Int32
+         , textureMaskId   :: Int32
+         , unknown1        :: Int32
+         , unknown2        :: Int32
+         , unknown3        :: Int32
+         , unknown4        :: Float
+         , unknown5        :: Float
+         , unknown6        :: Float
+         , unknown7        :: Float
+         , unknown8        :: Float
+         , shapePointCount :: Int32
+         , unknown9        :: Float
+         , unknown10       :: Int32
+         , unknown11       :: Int32
+         , shapePoints     :: Vector (Float, Float)
+         , unknown12       :: Vector ObjtSub        -- Always holds 12 elements
          }
-       deriving (Show, Eq, Generic, NFData)
+       deriving (Show, Generic, NFData)
 
-instance Unpack ObjtElement where
-  unpack form = do
-    unknown1  <- unpack form
-    unknown2  <- unpack form
-    unknown3  <- unpack form
-    unknown4  <- unpack form
-    unknown5  <- unpack form
-    unknown6  <- unpack form
-    unknown7  <- unpack form
-    unknown8  <- unpack form
-    unknown9  <- unpack form
-    unknown10 <- unpack form
-    unknown11 <- unpack form
-    unknown12 <- unpack form
-    unknown13 <- unpack form
-    unknown14 <- unpack form
-    unknown15 <- unpack form
-    unknown16 <- unpack form
-    adNumber  <- unpack form
-    ObjtElement
-      unknown1
-      unknown2
-      unknown3
-      unknown4
-      unknown5
-      unknown6
-      unknown7
-      unknown8
-      unknown9
-      unknown10
-      unknown11
-      unknown12
-      unknown13
-      unknown14
-      unknown15
-      unknown16
-      adNumber
-      <$> unpack form
-      <*> unpack form
-      <*> unpack form
-      <*> Vec.replicateM (fromIntegral adNumber) (unpack form)
-      <*> unpack form
+getObjtElement :: BSL.ByteString -> Get ObjtElement
+getObjtElement form = do
+  unknown1  <- getPtr form getByteStringNul
+  unknown2  <- getInt32le
+  unknown3  <- getBool
+  unknown4  <- getBool
+  unknown5  <- getInt32le
+  unknown6  <- getBool
+  unknown7  <- getInt32le
+  unknown8  <- getInt32le
+  unknown9  <- getInt32le
+  unknown10 <- getInt32le
+  unknown11 <- getInt32le
+  unknown12 <- getFloatle
+  unknown13 <- getFloatle
+  unknown14 <- getFloatle
+  unknown15 <- getFloatle
+  unknown16 <- getFloatle
+  adNumber  <- getInt32le
+  ObjtElement
+    unknown1
+    unknown2
+    unknown3
+    unknown4
+    unknown5
+    unknown6
+    unknown7
+    unknown8
+    unknown9
+    unknown10
+    unknown11
+    unknown12
+    unknown13
+    unknown14
+    unknown15
+    unknown16
+    adNumber
+    <$> getFloatle
+    <*> getInt32le
+    <*> getInt32le
+    <*> Vec.replicateM (fromIntegral adNumber) ((,) <$> getFloatle <*> getFloatle)
+    <*> getDict getObjtSub
 
-newtype ObjtSub = ObjtSub { unObjtSub :: Dictionary ObjtMeta }
-                  deriving (Show, Eq, Generic, NFData, Unpack)
+type ObjtSub = Vector ObjtMeta
+
+getObjtSub :: Get ObjtSub
+getObjtSub = getDict getObjtMeta
 
 -- | Only 'objtMetaUnknown1' seems to change meaningfully in this one, the rest is garbage.
 data ObjtMeta = ObjtMeta
-                  { omUnknown1   :: Int32
-                  , omUnknown2   :: Int32
-                  , omUnknown3   :: Int32 -- Points to eighth byte of this structure
-                  , omUnknown4   :: Int32
-                  , omUnknown5   :: Int32
-                  , omUnknown6   :: Int32
-                  , omUnknown7   :: Int32
-                  , omUnknown8   :: Int32
-                  , omUnknown9   :: Int32
-                  , omUnknown10  :: Int32
-                  , omUnknown11  :: Int32 -- Points to an empty string
-                  , omIdentifier :: Int32
-                  , omUnknown13  :: Int32
-                  , omUnknown14  :: Int32
-                  , omUnknown15  :: Int32
-                  , omUnknown16  :: Int32
-                  , omUnknown17  :: Int32
+                  { unknown1   :: Int32
+                  , unknown2   :: Int32
+                  , unknown3   :: Int32 -- Points to eighth byte of this structure
+                  , unknown4   :: Int32
+                  , unknown5   :: Int32
+                  , unknown6   :: Int32
+                  , unknown7   :: Int32
+                  , unknown8   :: Int32
+                  , unknown9   :: Int32
+                  , unknown10  :: Int32
+                  , unknown11  :: Int32 -- Points to an empty string
+                  , identifier :: Int32
+                  , unknown13  :: Int32
+                  , unknown14  :: Int32
+                  , unknown15  :: Int32
+                  , unknown16  :: Int32
+                  , unknown17  :: Int32
                   }
-                deriving (Show, Eq, Generic, NFData, Unpack)
+                deriving (Show, Generic, NFData)
+
+getObjtMeta :: Get ObjtMeta
+getObjtMeta =
+  ObjtMeta
+    <$> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
 
 
 
 -- | Room data.
-newtype Room = Room { unRoom :: Dictionary RoomElement }
-               deriving (Show, Eq)
+type Room = Vector RoomElement
 
-instance NFData Room where
-  rnf (Room dict) = rnf dict
-
-instance Unpack Room where
-  unpack form =
-    chunk "ROOM" $ \_ ->
-      Room <$> unpack form
+getRoom :: BSL.ByteString -> Get Room
+getRoom form =
+  chunk "ROOM" $ \_ ->
+    getDict (getRoomElement form)
 
 data RoomElement =
        RoomElement
-         { reName           :: Pointer BS.ByteString
-         , reCaption        :: Pointer BS.ByteString
-         , reWidth          :: Word32
-         , reHeight         :: Word32
-         , reSpeed          :: Word32
-         , rePersistent     :: Bool
-         , reRgba           :: RGBA
-         , reDrawBGColor    :: Bool
-         , reUnknown1       :: Word32
-         , reFlags          :: RoomEntryFlags
-         , reBgOffset       :: Word32
-         , reViewOffset     :: Word32
-         , reObjOffset      :: Word32
-         , reTileOffset     :: Word32
-         , reWorld          :: Word32
-         , reTop            :: Word32
-         , reLeft           :: Word32
-         , reRight          :: Word32
-         , reBottom         :: Word32
-         , reGravityX       :: Float
-         , reGravityY       :: Float
-         , reMetersPerPixel :: Float
-         , reBackgrounds    :: Dictionary RoomBackground
-         , reViews          :: Dictionary RoomView
-         , reObjects        :: Dictionary RoomObject
-         , reTiles          :: Dictionary RoomTile
+         { name           :: BS.ByteString
+         , caption        :: BS.ByteString
+         , width          :: Word32
+         , height         :: Word32
+         , speed          :: Word32
+         , persistent     :: Bool
+         , rgba           :: RGBA
+         , drawBGColor    :: Bool
+         , unknown1       :: Word32
+         , flags          :: Set RoomEntryFlag
+         , bgOffset       :: Word32
+         , viewOffset     :: Word32
+         , objOffset      :: Word32
+         , tileOffset     :: Word32
+         , world          :: Word32
+         , top            :: Word32
+         , left           :: Word32
+         , right          :: Word32
+         , bottom         :: Word32
+         , gravityX       :: Float
+         , gravityY       :: Float
+         , metersPerPixel :: Float
+         , backgrounds    :: Vector RoomBackground
+         , views          :: Vector RoomView
+         , objects        :: Vector RoomObject
+         , tiles          :: Vector RoomTile
          }
-       deriving (Show, Eq, Generic, NFData, Unpack)
+       deriving (Show, Generic, NFData)
+
+getRoomElement :: BSL.ByteString -> Get RoomElement
+getRoomElement form =
+  RoomElement
+    <$> getPtr form getByteStringNul
+    <*> getPtr form getByteStringNul
+    <*> getWord32le
+    <*> getWord32le
+    <*> getWord32le
+    <*> getBool
+    <*> getRGBA
+    <*> getBool
+    <*> getWord32le
+    <*> getRoomEntryFlags
+    <*> getWord32le
+    <*> getWord32le
+    <*> getWord32le
+    <*> getWord32le
+    <*> getWord32le
+    <*> getWord32le
+    <*> getWord32le
+    <*> getWord32le
+    <*> getWord32le
+    <*> getFloatle
+    <*> getFloatle
+    <*> getFloatle
+    <*> getDict getRoomBackground
+    <*> getDict getRoomView
+    <*> getDict getRoomObject
+    <*> getDict getRoomTile
 
 data RoomBackground =
        RoomBackground
-         { rbEnabled    :: Bool
-         , rbForeground :: Bool
-         , rbBgDefIndex :: Int32
-         , rbX          :: Int32
-         , rbY          :: Int32
-         , rbTileX      :: Bool
-         , rbTileY      :: Bool
-         , rbSpeedX     :: Int32
-         , rbSpeedY     :: Int32
-         , rbIdentifier :: Int32
+         { enabled    :: Bool
+         , foreground :: Bool
+         , bgDefIndex :: Int32
+         , x          :: Int32
+         , y          :: Int32
+         , tileX      :: Bool
+         , tileY      :: Bool
+         , speedX     :: Int32
+         , speedY     :: Int32
+         , identifier :: Int32
          }
-       deriving (Show, Eq, Generic, NFData, Unpack)
+       deriving (Show, Generic, NFData)
+
+getRoomBackground :: Get RoomBackground
+getRoomBackground =
+  RoomBackground
+    <$> getBool
+    <*> getBool
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getBool
+    <*> getBool
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
 
 data RoomView =
        RoomView
-         { rvEnabled    :: Bool
-         , rvViewX      :: Int32
-         , rvViewY      :: Int32
-         , rvViewWidth  :: Int32
-         , rvViewHeight :: Int32
-         , rvPortX      :: Int32
-         , rvPortY      :: Int32
-         , rvPortWidth  :: Int32
-         , rvPortHeight :: Int32
-         , rvBorderX    :: Int32
-         , rvBorderY    :: Int32
-         , rvSpeedX     :: Int32
-         , rvSpeedY     :: Int32
-         , rvIdentifier :: Int32
+         { enabled    :: Bool
+         , viewX      :: Int32
+         , viewY      :: Int32
+         , viewWidth  :: Int32
+         , viewHeight :: Int32
+         , portX      :: Int32
+         , portY      :: Int32
+         , portWidth  :: Int32
+         , portHeight :: Int32
+         , borderX    :: Int32
+         , borderY    :: Int32
+         , speedX     :: Int32
+         , speedY     :: Int32
+         , identifier :: Int32
          }
-       deriving (Show, Eq, Generic, NFData, Unpack)
+       deriving (Show, Generic, NFData)
+
+getRoomView :: Get RoomView
+getRoomView =
+  RoomView
+    <$> getBool
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
 
 data RoomObject =
        RoomObject
-         { roX          :: Int32
-         , roY          :: Int32
-         , roIdentifier :: Int32
-         , roInitCode   :: Int32
-         , roUnknown5   :: Int32
-         , roScaleX     :: Float
-         , roScaleY     :: Float
-         , roUnknown8   :: Int32
-         , roRotation   :: Float
+         { x          :: Int32
+         , y          :: Int32
+         , identifier :: Int32
+         , initCode   :: Int32
+         , unknown5   :: Int32
+         , scaleX     :: Float
+         , scaleY     :: Float
+         , unknown8   :: Int32
+         , rotation   :: Float
          }
-       deriving (Show, Eq, Generic, NFData, Unpack)
+       deriving (Show, Generic, NFData)
+
+getRoomObject :: Get RoomObject
+getRoomObject =
+  RoomObject
+    <$> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getFloatle
+    <*> getFloatle
+    <*> getInt32le
+    <*> getFloatle
 
 data RoomTile =
        RoomTile
-         { rtX          :: Int32
-         , rtY          :: Int32
-         , rtBgDefIndex :: Int32
-         , rtSourceX    :: Int32
-         , rtSourceY    :: Int32
-         , rtWidth      :: Int32
-         , rtHeight     :: Int32
-         , rtTileDepth  :: Int32
-         , rtIdentifier :: Int32
-         , rtScaleX     :: Float
-         , rtScaleY     :: Float
-         , rtUnknown12  :: Int32
+         { x          :: Int32
+         , y          :: Int32
+         , bgDefIndex :: Int32
+         , sourceX    :: Int32
+         , sourceY    :: Int32
+         , width      :: Int32
+         , height     :: Int32
+         , tileDepth  :: Int32
+         , identifier :: Int32
+         , scaleX     :: Float
+         , scaleY     :: Float
+         , unknown12  :: Int32
          }
-       deriving (Show, Eq, Generic, NFData, Unpack)
+       deriving (Show, Generic, NFData)
+
+getRoomTile :: Get RoomTile
+getRoomTile =
+  RoomTile
+    <$> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getFloatle
+    <*> getFloatle
+    <*> getInt32le
 
 
 
 -- | Empty.
-newtype Dafl = Dafl { unDafl :: BSL.ByteString }
-               deriving (Show, Eq)
+type Dafl = BSL.ByteString
 
-instance NFData Dafl where
-  rnf (Dafl bs) = rnf bs
-
-instance Unpack Dafl where
-  unpack _ =
-    chunk "DAFL" $ \_ ->
-      Dafl
-        <$> getRemainingLazyByteString
+getDafl :: Get Dafl
+getDafl =
+  chunk "DAFL" $ \_ ->
+    getRemainingLazyByteString
 
 
 
 -- | Sprite information as related to textures they reside in.
-newtype Tpag = Tpag { unTpag :: Dictionary TpagElement }
-               deriving (Show, Eq)
+type Tpag = Vector TpagElement
 
-instance NFData Tpag where
-  rnf (Tpag dict) = rnf dict
-
-instance Unpack Tpag where
-  unpack form =
-    chunk "TPAG" $ \_ ->
-      Tpag
-        <$> unpack form
+getTpag :: Get Tpag
+getTpag =
+  chunk "TPAG" $ \_ ->
+    getDict getTpagElement
 
 data TpagElement =
        TpagElement
-         { teOffsetX        :: Word16
-         , teOffsetY        :: Word16
-         , teWidth          :: Word16
-         , teHeight         :: Word16
-         , teRenderX        :: Word16
-         , teRenderY        :: Word16
-         , teBoundingX      :: Word16
-         , teBoundingY      :: Word16
-         , teBoundingWidth  :: Word16
-         , teBoundingHeight :: Word16
-         , teImageId        :: Word16
+         { offsetX        :: Word16
+         , offsetY        :: Word16
+         , width          :: Word16
+         , height         :: Word16
+         , renderX        :: Word16
+         , renderY        :: Word16
+         , boundingX      :: Word16
+         , boundingY      :: Word16
+         , boundingWidth  :: Word16
+         , boundingHeight :: Word16
+         , imageId        :: Word16
          }
-       deriving (Show, Eq, Generic, NFData, Unpack)
+       deriving (Show, Generic, NFData)
+
+getTpagElement :: Get TpagElement
+getTpagElement =
+  TpagElement
+    <$> getWord16le
+    <*> getWord16le
+    <*> getWord16le
+    <*> getWord16le
+    <*> getWord16le
+    <*> getWord16le
+    <*> getWord16le
+    <*> getWord16le
+    <*> getWord16le
+    <*> getWord16le
+    <*> getWord16le
 
 
 
 -- | Interpreted GameMaker code chunk. Will be empty if the game was compiled.
 data Code =
        Code
-         { cOffset     :: Int            -- Not part of CODE chunk but we need this
-         , cOperations :: CodeOps
-         , cElements   :: Vector CodeFunction
+         { offset     :: Int64               -- Not part of CODE chunk but we need this
+         , operations :: BSL.ByteString
+         , elements   :: Vector CodeFunction
          }
-       deriving (Show, Eq, Generic, NFData)
+       deriving (Show, Generic, NFData)
 
-instance Unpack (Maybe Code) where
-  unpack form = do
-    chunk "CODE" $ \cSize ->
-      msum [ do True <- isEmpty
-                return Nothing
-           , do
-                -- Size of the pointer list
-                size <- getWord32le
-                -- The pointer list itself
-                _ <- skip $ 4 * fromIntegral size
-                Just <$> do
-                       -- Offsets are local and are adjusted to global on function decoding
-                  Code (4 + 4 * fromIntegral size)
-                    <$> do CodeOps <$> do getLazyByteString . fromIntegral $ cSize - 4 * 6 * size - 4
-                           -- Elements pointed to by the pointer list are at the very end
-                    <*> do Vec.replicateM (fromIntegral size) $ do
-                             CodeFunction
-                               <$> unpack form
-                               <*> unpack form
-                               <*> unpack form
-                               <*> do offsetLocal <- fromIntegral <$> bytesRead
-                                      (offsetLocal +) . fromIntegral <$> getInt32le
-                               <*> unpack form
+
+
+getCode :: Int64 -> BSL.ByteString -> Get (Maybe Code)
+getCode offglobal form =
+  chunk "CODE" $ \cSize ->
+    msum [ do True <- isEmpty
+              return Nothing
+         , do
+              -- Size of the pointer list
+              size <- getWord32le
+              -- The pointer list itself
+              _ <- skip $ 4 * fromIntegral size
+              Just <$> do
+                Code (offglobal + 4 + 4 * fromIntegral size)
+                  <$> getLazyByteString (fromIntegral $ cSize - 4 * 6 * size - 4)
+                         -- Elements pointed to by the pointer list are at the very end
+                  <*> Vec.replicateM (fromIntegral size) (getCodeFunction offglobal form)
            ]
-
--- | Unpacked in "RiskOfRain.Decompilation"
-newtype CodeOps = CodeOps BSL.ByteString
-                  deriving (Show, Eq)
-
-instance NFData CodeOps where
-  rnf (CodeOps dict) = rnf dict
-
-instance Unpack CodeOps where
-  unpack _ =
-    CodeOps <$> getRemainingLazyByteString
 
 -- | A map of functions over 'CodeOps'. None of them overlap and there is no leftover code.
 data CodeFunction =
        CodeFunction
-         { cfName       :: Pointer BS.ByteString
-         , cfSize       :: Word32
-         , cfUnknown1   :: Word32
-         , cfOffset     :: Int    -- Realigned this to global values
-         , cfUnknown2   :: Word32
+         { name       :: BS.ByteString
+         , size       :: Word32
+         , unknown1   :: Word32
+         , offset     :: Int64         -- Realigned this to global values
+         , unknown2   :: Word32
          }
-       deriving (Show, Eq, Generic, NFData)
+       deriving (Show, Generic, NFData)
+
+getCodeFunction :: Int64 -> BSL.ByteString -> Get CodeFunction
+getCodeFunction offglobal form =
+  CodeFunction
+    <$> getPtr form getByteStringNul
+    <*> getWord32le
+    <*> getWord32le
+    <*> do offlocal <- bytesRead
+           offset <- getInt32le
+           return $ offglobal + offlocal + fromIntegral offset
+    <*> getWord32le
 
 
 
 -- | Variable names and where they occur in code.
 data Vari =
        Vari
-         { vUnknown1 :: Word32
-         , vUnknown2 :: Word32
-         , vUnknown3 :: Word32
-         , vElements :: Vector VariElement
+         { unknown1 :: Word32
+         , unknown2 :: Word32
+         , unknown3 :: Word32
+         , elements :: Vector VariElement
          }
-       deriving (Show, Eq, Generic, NFData)
+       deriving (Show, Generic, NFData)
 
-instance Unpack (Maybe Vari) where
-  unpack form =
-    chunk "VARI" $ \_ ->
-      msum
-        [ do True <- isEmpty
-             return Nothing
-        , Just <$> do
-            Vari
-              <$> unpack form
-              <*> unpack form
-              <*> unpack form
-              <*> do Vec.fromList <$> many (unpack form)
-        ]
+getVari :: BSL.ByteString -> Get (Maybe Vari)
+getVari form =
+  chunk "VARI" $ \_ ->
+    msum
+      [ do True <- isEmpty
+           return Nothing
+      , Just <$> do
+          Vari
+            <$> getWord32le
+            <*> getWord32le
+            <*> getWord32le
+            <*> fmap Vec.fromList (many $ getVariElement form)
+      ]
 
 -- | Every address points to the next address and it repeats @occurences@ times.
 data VariElement =
        VariElement
-         { veName       :: Pointer BS.ByteString
-         , veUnknown1   :: Int32
-         , veUnknown2   :: Int32
-         , veOccurences :: Int32
-         , veAddress    :: Int32
+         { name       :: BS.ByteString
+         , unknown1   :: Int32
+         , unknown2   :: Int32
+         , occurences :: Int32
+         , address    :: Int32
          }
-       deriving (Show, Eq, Generic, NFData, Unpack)
+       deriving (Show, Generic, NFData)
+
+getVariElement :: BSL.ByteString -> Get VariElement
+getVariElement form =
+  VariElement
+    <$> getPtr form getByteStringNul
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
+    <*> getInt32le
 
 
 
 -- | Function information.
 data Func =
        Func
-         { fPositions :: Vector FuncPosition
-         , fArguments :: Vector FuncArguments
+         { positions :: Vector FuncPosition
+         , arguments :: Vector FuncArguments
          }
-       deriving (Show, Eq, Generic, NFData)
+       deriving (Show, Generic, NFData)
 
-instance Unpack (Maybe Func) where
-  unpack form =
-    chunk "FUNC" $ \_ ->
-      msum
-        [ do True <- isEmpty
-             return Nothing
-        , Just <$> do
-            Func
-              <$> do tripSize <- getWord32le
-                     Vec.replicateM (fromIntegral tripSize) $ unpack form
-              <*> do elemSize <- getWord32le
-                     Vec.replicateM (fromIntegral elemSize) $ unpack form
-        ]
+getFunc :: BSL.ByteString -> Get (Maybe Func)
+getFunc form =
+  chunk "FUNC" $ \_ ->
+    msum
+      [ do True <- isEmpty
+           return Nothing
+      , Just <$> do
+          Func
+            <$> do tripSize <- getWord32le
+                   Vec.replicateM (fromIntegral tripSize) (getFuncPosition form)
+            <*> do elemSize <- getWord32le
+                   Vec.replicateM (fromIntegral elemSize) (getFuncArguments form)
+      ]
 
 -- | Same reasoning as with 'VariElement'.
 data FuncPosition =
        FuncPosition
-         { fpName       :: Pointer BS.ByteString
-         , fpOccurences :: Word32
-         , fpAddress    :: Word32
+         { name       :: BS.ByteString
+         , occurences :: Word32
+         , address    :: Word32
          }
-       deriving (Show, Eq, Generic, NFData, Unpack)
+       deriving (Show, Generic, NFData)
+
+getFuncPosition :: BSL.ByteString -> Get FuncPosition
+getFuncPosition form =
+  FuncPosition
+    <$> getPtr form getByteStringNul
+    <*> getWord32le
+    <*> getWord32le
 
 -- | Arguments each function consumes.
 --
 --   Note: first argument is always @"arguments"@, then optionally other ones.
 data FuncArguments =
        FuncArguments
-         { faName      :: Pointer BS.ByteString
-         , faArguments :: Vector (Pointer BS.ByteString)
+         { name      :: BS.ByteString
+         , arguments :: Vector BS.ByteString
          }
-       deriving (Show, Eq, Generic, NFData)
+       deriving (Show, Generic, NFData)
 
-instance Unpack FuncArguments where
-  unpack form = do
-    size <- fromIntegral <$> getWord32le
-    FuncArguments
-      <$> unpack form
-      <*> do Vec.replicateM size $ do
-               _argPositionId <- getWord32le
-               unpack form
+getFuncArguments :: BSL.ByteString -> Get FuncArguments
+getFuncArguments form = do
+  size <- fromIntegral <$> getWord32le
+  FuncArguments
+    <$> getPtr form getByteStringNul
+    <*> do Vec.replicateM size $ do
+             _argPositionId <- getWord32le
+             getPtr form getByteStringNul
 
 
 
 -- | Strings.
-newtype Strg = Strg { unStrg :: Dictionary StrgString }
-               deriving (Show, Eq)
+type Strg = Vector BS.ByteString
 
-instance NFData Strg where
-  rnf (Strg dict) = rnf dict
+getStrg :: Get Strg
+getStrg =
+  chunk "STRG" $ \_ -> do
+    strg <- getDict getStrgString
+    _ <- getRemainingLazyByteString
+    return strg
 
-instance Unpack Strg where
-  unpack form =
-    chunk "STRG" $ \_ -> do
-      strg <- Strg
-                <$> unpack form
-      _ <- getRemainingLazyByteString
-      return strg
+type StrgString = BS.ByteString
 
-newtype StrgString = StrgString { unStrgString :: BS.ByteString }
-                     deriving (Show, Eq)
-
-instance NFData StrgString where
-  rnf (StrgString bs) = rnf bs
-
-instance Unpack StrgString where
-  unpack form = do
-    _size <- getWord32le
-    StrgString
-      <$> unpack form
+getStrgString :: Get BS.ByteString
+getStrgString = do
+  _size <- getWord32le
+  getByteStringNul
 
 
 
 -- | Raw textures.
-newtype Txtr = Txtr { unTxtr :: DictionaryS TxtrElement }
-               deriving (Show, Eq)
+type Txtr = Vector TxtrElement
 
-instance NFData Txtr where
-  rnf (Txtr tx) = rnf tx
-
-instance Unpack Txtr where
-  unpack form =
-    chunk "TXTR" $ \_ -> do
-      txtr <- Txtr
-                <$> unpack form
-      _ <- getRemainingLazyByteString
-      return txtr
+getTxtr :: BSL.ByteString -> Get Txtr
+getTxtr form =
+  chunk "TXTR" $ \_ -> do
+    txtr <- getDictSized (getTxtrElement form)
+    _ <- getRemainingLazyByteString
+    return txtr
 
 data TxtrElement =
        TxtrElement
-         { teUnknown1 :: Word32
-         , teImage    :: Pointer PNG
+         { unknown1 :: Word32
+         , image    :: BS.ByteString
          }
-       deriving (Show, Eq, Generic, Unpack)
+       deriving (Show, Generic, NFData)
 
-instance NFData TxtrElement
+getTxtrElement :: BSL.ByteString -> Get TxtrElement
+getTxtrElement form =
+  TxtrElement
+    <$> getWord32le
+    <*> getPtr form getPNG
 
 
 
 -- | Raw audio files.
-newtype Audo = Audo { unAudo :: DictionaryS AudoFile }
-               deriving (Show, Eq)
+type Audo = Vector BS.ByteString
 
-instance NFData Audo where
-  rnf (Audo au) = rnf au
-
-instance Unpack Audo where
-  unpack form =
-    chunk "AUDO" $ \_ -> do
-      audo <- Audo
-                <$> unpack form
-      _ <- getRemainingLazyByteString
-      return audo
-
-newtype AudoFile = AudoFile { unAudoFile :: BS.ByteString }
-                   deriving (Show, Eq)
-
-instance NFData AudoFile where
-  rnf (AudoFile bs) = rnf bs
-
-instance Unpack AudoFile where
-  unpack _ = do
-    audo <- AudoFile
-              <$> do size <- fromIntegral <$> getWord32le
-                     getByteString size
-    _ <- getRemainingLazyByteString -- the first blob leaves 3 bytes hanging, after that
-                                    -- it's mostly 2 or somethimes none.
+getAudo :: Get Audo
+getAudo =
+  chunk "AUDO" $ \_ -> do
+    audo <- getDictSized getAudoFile
+    _ <- getRemainingLazyByteString
     return audo
+
+getAudoFile :: Get BS.ByteString
+getAudoFile = do
+  size <- getWord32le
+  audo <- getByteString (fromIntegral size)
+  _ <- getRemainingLazyByteString -- the first blob leaves 3 bytes hanging, after that
+                                  -- it's mostly 2 or somethimes none.
+  return audo
+
+
+
+makeLabels ''Form
+
+makeLabels ''Gen8
+
+makeLabels ''Extn
+makeLabels ''ExtnTriplet
+makeLabels ''ExtnSegment
+makeLabels ''ExtnOperation
+
+makeLabels ''SondElement
+
+makeLabels ''SprtElement
+
+makeLabels ''BgndElement
+
+makeLabels ''ScptBinding
+
+makeLabels ''FontElement
+makeLabels ''FontBit
+
+makeLabels ''ObjtElement
+makeLabels ''ObjtMeta
+
+makeLabels ''RoomElement
+makeLabels ''RoomBackground
+makeLabels ''RoomView
+makeLabels ''RoomObject
+makeLabels ''RoomTile
+
+makeLabels ''TpagElement
+
+makeLabels ''Code
+makeLabels ''CodeFunction
+
+makeLabels ''Vari
+makeLabels ''VariElement
+
+makeLabels ''Func
+makeLabels ''FuncPosition
+makeLabels ''FuncArguments
+
+makeLabels ''TxtrElement
+
+
+
+-- | Decodes the 'Form'.
+--
+--   First argument of the resulting tuple is a list of parsed chunk names.
+--   Each name is produced lazily after the previous chunk is evaluated.
+--   Reaching end of the list thus means fully evaluating the decoding result.
+decodeForm :: BSL.ByteString -> Stream (Int, String) String Form
+decodeForm file =
+  case runGetOrFail (extChunk "FORM") file of
+    Left  (_   , _, err     ) -> Error err
+    Right (rest, _, formsize) ->
+      ( segment "GEN8" (\_   -> getGen8)
+      . segment "OPTN" (\_ _ -> getOptn)
+      . segment "EXTN" (\_   -> getExtn)
+      . segment "SOND" (\_   -> getSond)
+      . segment "AGRP" (\_ _ -> getAgrp)
+      . segment "SPRT" (\_   -> getSprt)
+      . segment "BGND" (\_   -> getBgnd)
+      . segment "PATH" (\_ _ -> getPath)
+      . segment "SCPT" (\_   -> getScpt)
+      . segment "SHDR" (\_ _ -> getShdr)
+      . segment "FONT" (\_   -> getFont)
+      . segment "TMLN" (\_ _ -> getTmln)
+      . segment "OBJT" (\_   -> getObjt)
+      . segment "ROOM" (\_   -> getRoom)
+      . segment "DAFL" (\_ _ -> getDafl)
+      . segment "TPAG" (\_ _ -> getTpag)
+      . segment "CODE"          getCode
+      . segment "VARI" (\_   -> getVari)
+      . segment "FUNC" (\_   -> getFunc)
+      . segment "STRG" (\_ _ -> getStrg)
+      . segment "TXTR" (\_   -> getTxtr)
+      . segment "AUDO" (\_ _ -> getAudo)
+      ) (\x _ _ _ -> Bottom x) Form 1 (BSL.take (fromIntegral formsize) rest) 0
+  where
+    segment name get f app n rest off =
+      Next (n, name) $
+        case runGetOrFail (get off file) rest of
+          Right (rest', off', a  ) -> f (app a) (n + 1) rest' (off + off')
+          Left  (_    , _   , err) -> Error err
+
+
+
+-- | Total number of chunks 'decodeForm' parses.
+totalChunks :: Int
+totalChunks = 22

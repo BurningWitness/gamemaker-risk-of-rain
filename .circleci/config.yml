@@ -28,7 +28,7 @@ jobs:
           command: cabal new-update && cabal new-install --lib
       - run:
           name: Build
-          command: cabal new-build --enable-tests --enable-documentation
+          command: cabal new-build -fcoherence --enable-documentation
       - save_cache:
           name: Cache
           key: linux-<< parameters.version >>-{{ checksum "gamemaker-risk-of-rain.cabal" }}
@@ -57,7 +57,7 @@ jobs:
           name: Build
           command: |
             stack init --resolver << parameters.resolver >>
-            stack test --no-terminal --no-run-tests
+            stack build --flag gamemaker-risk-of-rain:coherence --no-terminal
       - save_cache:
           name: Cache
           key: macos-<< parameters.resolver >>-{{ checksum "gamemaker-risk-of-rain.cabal" }}
@@ -93,7 +93,7 @@ jobs:
           shell: bash.exe
           command: |
             stack init --resolver << parameters.resolver >>
-            stack test --no-run-tests --no-terminal
+            stack build --flag gamemaker-risk-of-rain:coherence --no-terminal
       - save_cache:
           name: Cache
           key: windows-<< parameters.resolver >>-{{ checksum "gamemaker-risk-of-rain.cabal" }}

@@ -27,6 +27,7 @@
            , FunctionalDependencies
            , GeneralizedNewtypeDeriving
            , LambdaCase
+           , OverloadedLabels
            , OverloadedStrings
            , PatternSynonyms
            , StandaloneDeriving
@@ -60,7 +61,6 @@ module GameMaker.RiskOfRain.Decompilation
   , pprint
   ) where
 
-import           GameMaker.RiskOfRain.Lens hiding (x, y, name, code)
 import qualified GameMaker.RiskOfRain.Decompilation.Raw as Raw
 import           GameMaker.RiskOfRain.Decompilation.Raw hiding (Comparison, Call, Normal, Break, Exit)
 import           GameMaker.RiskOfRain.Unpacking
@@ -71,7 +71,7 @@ import           Data.ByteString.Builder
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import           Data.Coerce
-import           Data.Foldable (asum, fold)
+import           Data.Foldable (fold)
 import           Data.List (intersperse)
 import           Data.Int
 import           Data.Maybe (catMaybes, fromMaybe, isJust)
@@ -107,7 +107,7 @@ unwrapStringlike = coerce
 
 -- | Tells where the end of the function is.
 codeEnd :: CodeFunction -> Int
-codeEnd el = el^.offset + el^.size.to fromIntegral
+codeEnd el = el ^. #offset . to fromIntegral + el ^. #size . to fromIntegral
 
 
 

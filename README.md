@@ -13,7 +13,7 @@ This package includes:
 
   * Decompilation of the game's interpreted code (stored inside the
     `CODE` chunk and available only on Windows because Hopoo stopped running
-    YYC-compiled code which caused
+    YYC-compiled code as it caused
     [crashes](https://riskofrain.fandom.com/wiki/Updates#Patch_v1.2.3)).
 
 Big thanks go out to
