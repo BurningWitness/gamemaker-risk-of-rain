@@ -6,100 +6,39 @@ orbs:
 jobs:
   build-linux:
     machine:
-      image: ubuntu-2004:current
+      image: ubuntu-2204:current
     resource_class: medium
     parameters:
-      version:
+      cabal:
+        type: string
+      ghc:
         type: string
     steps:
       - checkout
-      - restore_cache:
-          name: Restore
-          key: linux-<< parameters.version >>-{{ checksum "gamemaker-risk-of-rain.cabal" }}
+
       - run:
-          name: Install GHC
+          name: Install Cabal and GHC
           command: |
-            sudo add-apt-repository ppa:hvr/ghc
-            sudo apt-get install ghc-<< parameters.version >> cabal-install-3.4
-            echo 'export PATH=/opt/ghc/bin:$PATH' >> $BASH_ENV
+            curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | BOOTSTRAP_
+HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_MINIMAL=1 sh
+
+            PATH=$HOME/.ghcup/bin:$PATH
+            echo 'export PATH=$HOME/.ghcup/bin:$PATH' >> $BASH_ENV
+
+            ghcup install cabal << parameters.cabal >>
+            ghcup set cabal << parameters.cabal >>
+
+            ghcup install ghc << parameters.ghc >>
+            ghcup set ghc << parameters.ghc >>
 
       - run:
           name: Update Dependencies
-          command: cabal new-update
-      - run:
-          name: Build
-          command: cabal new-build -fcoherence --enable-documentation
-      - save_cache:
-          name: Cache
-          key: linux-<< parameters.version >>-{{ checksum "gamemaker-risk-of-rain.cabal" }}
-          paths:
-            - "/root/.cabal"
-            - "dist-newstyle"
-
-  build-macos:
-    macos:
-      xcode: 12.5.1
-    resource_class: medium
-    parameters:
-      resolver:
-        type: string
-    steps:
-      - checkout
-      - restore_cache:
-          name: Restore
-          key: macos-<< parameters.resolver >>-{{ checksum "gamemaker-risk-of-rain.cabal" }}
-      - run:
-          name: Install Stack
-          command: |
-            curl -sSL https://get.haskellstack.org/ | sh
+          command: cabal update
 
       - run:
           name: Build
           command: |
-            echo -e 'resolver: << parameters.resolver >>\n\nextra-deps:\n- git: https://github.com/BurningWitness/microlens-labels.git\n  commit: 7630860379fd9392bff19092900e8e180466422f' > stack.yaml
-            stack build --flag gamemaker-risk-of-rain:coherence --no-terminal
-      - save_cache:
-          name: Cache
-          key: macos-<< parameters.resolver >>-{{ checksum "gamemaker-risk-of-rain.cabal" }}
-          paths:
-            - "$HOME/.stack"
-            - ".stack-work"
-
-  build-windows:
-    executor: win/default
-    parameters:
-      resolver:
-        type: string
-    steps:
-      - checkout
-      - restore_cache:
-          name: Restore
-          key: windows--<< parameters.resolver >>-{{ checksum "gamemaker-risk-of-rain.cabal" }}
-      - run:
-          name: Install Stack
-          shell: bash.exe
-          command: |
-            mkdir stack-build
-            cd stack-build
-            curl -LO --no-progress-meter https://get.haskellstack.org/stable/windows-x86_64.zip
-            unzip windows-x86_64.zip
-            mkdir -pv "$APPDATA/local/bin"
-            mv -v stack.exe "$APPDATA/local/bin"
-            cd ..
-            echo 'export PATH=$APPDATA/local/bin:$PATH' >> $BASH_ENV
-
-      - run:
-          name: Build
-          shell: bash.exe
-          command: |
-            echo -e 'resolver: << parameters.resolver >>\n\nextra-deps:\n- git: https://github.com/BurningWitness/microlens-labels.git\n  commit: 7630860379fd9392bff19092900e8e180466422f' > stack.yaml
-            stack build --flag gamemaker-risk-of-rain:coherence --no-terminal
-      - save_cache:
-          name: Cache
-          key: windows-<< parameters.resolver >>-{{ checksum "gamemaker-risk-of-rain.cabal" }}
-          paths:
-            - "$APPDATA/stack"
-            - ".stack-work"
+            cabal build --enable-tests
 
 
 
@@ -107,11 +46,6 @@ workflows:
   workflow:
     jobs:
       - build-linux:
-          name: linux-9.0.1
-          version: 9.0.1
-      - build-macos:
-          name: macos-lts-19.7
-          resolver: lts-19.7
-      - build-windows:
-          name: windows-lts-19.7
-          resolver: lts-19.7
+          name: linux-9.8.1
+          cabal: 3.10.1.0
+          ghc: 9.8.1

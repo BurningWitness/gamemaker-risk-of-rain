@@ -9,7 +9,7 @@ homepage:       https://github.com/burningwitness/gamemaker-risk-of-rain#readme
 bug-reports:    https://github.com/burningwitness/gamemaker-risk-of-rain/issues
 author:         Oleksii Divak
 maintainer:     Oleksii Divak <frozenwitness@gmail.com>
-copyright:      (c) 2021-2022, Oleksii Divak
+copyright:      (c) 2021, Oleksii Divak
 license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
@@ -18,58 +18,54 @@ source-repository head
   type: git
   location: https://github.com/burningwitness/gamemaker-risk-of-rain
 
-flag coherence
-  description: Whether the test app should be built
-  default: False
-
-executable coherence
+executable decompile
   main-is: Main.hs
 
-  hs-source-dirs: app/coherence
+  hs-source-dirs: app/decompile
 
-  ghc-options: -Wall -O2
+  ghc-options: -Wall
 
-  build-depends: base >=4.12 && <5
+  build-depends: base
+               , binary
                , bytestring
-               , deepseq
                , gamemaker-risk-of-rain
-               , microlens
-               , optparse-applicative
+               , optics-core
 
   default-language: Haskell2010
 
-  if flag (coherence)
-    buildable: True
-  else
-    buildable: False
-
 library
-  exposed-modules: GameMaker.RiskOfRain
-                   GameMaker.RiskOfRain.Decompilation
-                   GameMaker.RiskOfRain.Decompilation.Raw
-                   GameMaker.RiskOfRain.Stream
+  exposed-modules: GameMaker.RiskOfRain.Decompilation
+                   GameMaker.RiskOfRain.Disassembly
                    GameMaker.RiskOfRain.Unpacking
-                   GameMaker.RiskOfRain.Unpacking.Help
 
   hs-source-dirs: src
 
-  if impl (ghc >= 9.2)
-    default-extensions: NoImplicitPrelude
-                        NoFieldSelectors
-  else
-    default-extensions: NoImplicitPrelude
-
-  ghc-options: -Wall -O2
+  ghc-options: -Wall
 
   build-depends: base >=4.12 && <5
                , binary
                , bytestring
                , containers
-               , deepseq
-               , microlens
-               , microlens-labels
-               , template-haskell
+               , optics-th
+               , primitive
                , time
-               , vector
+
+  default-language: Haskell2010
+
+test-suite coherence
+  type: exitcode-stdio-1.0
+
+  main-is: Main.hs
+
+  hs-source-dirs: test/coherence
+
+  ghc-options: -Wall
+
+  build-depends: base
+               , binary
+               , bytestring
+               , gamemaker-risk-of-rain
+               , optics-core
+               , time
 
   default-language: Haskell2010

@@ -1,24 +1,33 @@
 # gamemaker-risk-of-rain
 
-An unpacking and decompilation of the
+Unpacking and decompilation of
 [Risk of Rain 1](https://store.steampowered.com/app/248820/Risk_of_Rain/) files.
-
-More specifically I'm referring to `data.win` (if you're using Windows) or
-`data.unx` (if you're using Linux).
+More specifically `data.win` (under Windows) and `game.unx` (under Linux).
 
 This package includes:
 
-  * Extraction of every single texture/audio file/string/font/shader the game
-    has to offer;
+  * Extraction of about every single resource the data file has to offer;
 
   * Decompilation of the game's interpreted code (stored inside the
-    `CODE` chunk and available only on Windows because Hopoo stopped running
+    `CODE` chunk and available only on Windows; Hopoo stopped running
     YYC-compiled code as it caused
     [crashes](https://riskofrain.fandom.com/wiki/Updates#Patch_v1.2.3)).
 
-Big thanks go out to
-[the Undertale datamining squad](https://pcy.ulyssis.be/undertale/),
-as without them this would take a year longer than it already did.
+    Additionally running `cabal run decompile -- FILE`, where `FILE` is the link to a
+    `data.win` file will output game's decompiled source code to stdout.
+
+Kudos to the Undertale datamining squad for sharing their findings. Without them
+decompiling the game would take even longer than it already did and would not be
+nearly as successful. Links to Undertale stuff:
+
+- Data file format and 0xF instruction list:
+  [tomat.dev/undertale](https://tomat.dev/undertale);
+
+- Detailed 0xE instruction list:
+  [github.com/gm-archive/acolyte/wiki](https://github.com/gm-archive/acolyte/wiki/Bytecode).
+
+- Corrections to data file format and 0xF instruction list:
+  [github.com/krzys-h/UndertaleModTool/wiki](https://github.com/krzys-h/UndertaleModTool/wiki/Corrections-to-GameMaker-Studio-1.4-data.win-format-and-VM-bytecode,-.yydebug-format-and-debugger-instructions).
 
 
 
