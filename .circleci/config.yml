@@ -19,8 +19,7 @@ jobs:
       - run:
           name: Install Cabal and GHC
           command: |
-            curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | BOOTSTRAP_
-HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_MINIMAL=1 sh
+            curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_MINIMAL=1 sh
 
             PATH=$HOME/.ghcup/bin:$PATH
             echo 'export PATH=$HOME/.ghcup/bin:$PATH' >> $BASH_ENV
