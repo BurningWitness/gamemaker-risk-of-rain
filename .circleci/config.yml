@@ -37,7 +37,7 @@ jobs:
       - run:
           name: Build
           command: |
-            cabal build --enable-tests
+            cabal build
 
 
 
@@ -45,6 +45,6 @@ workflows:
   workflow:
     jobs:
       - build-linux:
-          name: linux-9.8.1
-          cabal: 3.10.1.0
-          ghc: 9.8.1
+          name: linux-9.10.1
+          cabal: 3.14.1.1
+          ghc: 9.10.1

@@ -1,20 +1,44 @@
 # gamemaker-risk-of-rain
 
-Unpacking and decompilation of
-[Risk of Rain 1](https://store.steampowered.com/app/248820/Risk_of_Rain/) files.
-More specifically `data.win` (under Windows) and `game.unx` (under Linux).
+Tools for unpacking and decompiling the GameMaker data file for
+[Risk of Rain 1](https://store.steampowered.com/app/248820/Risk_of_Rain/),
+called `data.win` on Windows, `data.ios` on MacOS and `game.unx` on Linux.
 
-This package includes:
 
-  * Extraction of about every single resource the data file has to offer;
+## Executables
 
-  * Decompilation of the game's interpreted code (stored inside the
-    `CODE` chunk and available only on Windows; Hopoo stopped running
-    YYC-compiled code as it caused
-    [crashes](https://riskofrain.fandom.com/wiki/Updates#Patch_v1.2.3)).
+### Examination
 
-    Additionally running `cabal run decompile -- FILE`, where `FILE` is the link to a
-    `data.win` file will output game's decompiled source code to stdout.
+```bash
+cabal build examine
+cabal run examine -- FILE
+```
+
+<sup>(where `FILE` is the `data.win`/`game.ios`/`game.unx` file)</sup>
+
+Outputs data file information to stdout.
+
+
+### Decompiler
+
+```bash
+cabal build decompile
+cabal run decompile -- FILE
+```
+
+<sup>(where `FILE` is the `data.win`/`game.ios` file)</sup>
+
+Disassembles and decompiles game's source code, outputting
+[K&R indented](https://www.kernel.org/doc/html/v4.14/process/coding-style.html)
+[GML](https://en.wikipedia.org/wiki/GameMaker#GameMaker_Language) to stdout.
+Note that this is only available for Windows and MacOS builds of the game;
+there was a period when Hopoo distributed YYC-compiled versions of the game,
+but they stopped as it caused
+[crashes](https://web.archive.org/web/20141121214456/http://riskofraingame.com/risk-of-rain-patch-v1-2-3/).
+
+
+
+## Honorable mentions
 
 Kudos to the Undertale datamining squad for sharing their findings. Without them
 decompiling the game would take even longer than it already did and would not be
@@ -40,7 +64,7 @@ A: I tried like five and all of them seemed to use bytecode 0xE, while
    updating GameMaker
    [breaks](https://www.reddit.com/r/gamemaker/comments/89sukv/the_latest_update_broke_my_game/)
    the project). There are major structural differences between the two, therefore even the
-   naming of the modules in the package is `GameMaker.RiskOfRain.*`. So imo if you wanna
+   naming of the modules in the package is `GameMaker.RiskOfRain.*`. If you want to
    decompile a different game, handroll another setup, you're most certainly not
    using Haskell either way.
 
